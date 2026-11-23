@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Angebotsstunden CIA Spandau · {{ jahr }}</title>
+<style>
+  :root{
+    --petrol:#1e4b5a; --green:#2e7d6b; --amber:#c97f2e; --sand:#e2a864;
+    --grey:#c6cdd1; --ink:#22313a; --muted:#6b7c85; --line:#dfe6e9; --bg:#f6f8f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 20px 60px}
+  header{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;justify-content:space-between}
+  h1{font-size:23px;margin:0;letter-spacing:-.2px}
+  h1 small{display:block;font-size:13px;font-weight:400;color:var(--muted);margin-top:3px}
+  .tabs{display:flex;gap:6px}
+  .tabs a{padding:6px 14px;border-radius:999px;text-decoration:none;color:var(--petrol);
+          border:1px solid var(--line);background:#fff;font-size:14px}
+  .tabs a.on{background:var(--petrol);color:#fff;border-color:var(--petrol)}
+  .actions{display:flex;gap:8px;margin:16px 0 18px}
+  .btn{display:inline-block;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600;
+       font-size:14px;background:var(--petrol);color:#fff}
+  .btn.ghost{background:#fff;color:var(--petrol);border:1px solid var(--line)}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+  .kpi{background:#fff;border:1px solid var(--line);border-left:4px solid var(--petrol);
+       border-radius:10px;padding:12px 14px}
+  .kpi .l{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .kpi .v{font-size:26px;font-weight:800;margin-top:2px}
+  .kpi .s{font-size:12px;color:var(--muted);margin-top:2px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 16px 8px;margin-bottom:16px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--petrol);
+     padding:8px 8px;text-align:right;font-weight:700}
+  th:first-child{text-align:left;border-radius:8px 0 0 0}
+  th:last-child{border-radius:0 8px 0 0}
+  td{padding:7px 8px;border-bottom:1px solid #eef2f3;text-align:right;font-variant-numeric:tabular-nums}
+  td:first-child{text-align:left}
+  td .role{display:block;font-size:11.5px;color:var(--muted);font-weight:400}
+  tbody tr:nth-child(even){background:#f8fafb}
+  tr.sum td{background:var(--petrol);color:#fff;font-weight:700;border:0}
+  tr.sum td:first-child{border-radius:0 0 0 8px}
+  tr.sum td:last-child{border-radius:0 0 8px 0}
+  .bars{margin:6px 0 4px}
+  .row{display:grid;grid-template-columns:150px 1fr 74px;align-items:center;gap:10px;padding:4px 0}
+  .row .nm{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .track{display:flex;height:16px;background:#f0f3f4;border-radius:4px;overflow:hidden}
+  .seg{height:100%}
+  .a1{background:var(--green)} .a5{background:var(--amber)} .rs{background:var(--grey)}
+  .row .tt{font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:10px 0 6px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+  .cov{display:flex;height:26px;border-radius:6px;overflow:hidden;margin:6px 0 2px}
+  .cov div{display:flex;align-items:center;justify-content:flex-start;color:#fff;font-size:11.5px;font-weight:700;padding-left:8px}
+  footer{margin-top:22px;font-size:12px;color:var(--muted);line-height:1.6}
+  @media(max-width:720px){
+    .kpis{grid-template-columns:1fr}
+    .row{grid-template-columns:96px 1fr 58px}
+    table{font-size:12.5px}
+    th,td{padding:6px 5px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Angebotsstunden {{ jahr }}
+      <small>Medienkompetenzzentrum CIA Spandau · Staakkato Kinder und Jugend e.V.</small>
+    </h1>
+    <nav class="tabs">
+      {% for j in jahre %}<a href="/?jahr={{ j }}" class="{{ 'on' if j == jahr else '' }}">{{ j }}</a>{% endfor %}
+    </nav>
+  </header>
+
+  <div class="actions">
+    <a class="btn" href="/export.pdf" target="_blank" rel="noopener">PDF herunterladen</a>
+    <a class="btn ghost" href="/export.xlsx">Excel (Steuerungsdatei)</a>
+    <a class="btn ghost" href="/?jahr={{ jahr }}&refresh=1">Daten neu laden</a>
+  </div>
+
+  <section class="kpis">
+    <div class="kpi"><div class="l">Vertraglich geschuldet</div>
+      <div class="v">{{ m.soll.ges|de }} h</div>
+      <div class="s">§ 5 Nr. 1 · 5.000 + 1.828 · 38,08 €/h</div></div>
+    <div class="kpi" style="border-left-color:var(--green)"><div class="l">Freie Jugendarbeit (AF 1)</div>
+      <div class="v">{{ m.soll.af1|de }} h</div>
+      <div class="s">standortgebundene Angebote</div></div>
+    <div class="kpi" style="border-left-color:var(--amber)"><div class="l">Curricular (AF 5)</div>
+      <div class="v">{{ m.soll.af5|de }} h</div>
+      <div class="s">davon {{ m.honorarstunden|de }} h Honorarkräfte</div></div>
+  </section>
+
+  <div class="card">
+    <table>
+      <thead><tr>
+        <th>Mitarbeiter*in</th><th>Wochenstd.</th><th>im Projekt</th>
+        <th>Stunden im Jahr</th><th>AF 1</th><th>AF 5</th><th>Leitung/Verwaltung</th>
+      </tr></thead>
+      <tbody>
+      {% for p in m.personen %}
+        <tr>
+          <td><strong>{{ p.name }}</strong><span class="role">{{ p.rolle }}</span></td>
+          <td>{{ p.wochenstunden|g }}</td>
+          <td style="text-align:left">{{ p.zeitraum }}</td>
+          <td>{{ p.netto|de }}</td>
+          <td>{{ p.af1|de if p.af1 > 0.5 else '–' }}</td>
+          <td>{{ p.af5|de if p.af5 > 0.5 else '–' }}</td>
+          <td>{{ p.reserve|de }}</td>
+        </tr>
+      {% endfor %}
+        <tr>
+          <td><strong>Honorarkräfte (Pool)</strong><span class="role">externe Workshopleitungen</span></td>
+          <td>–</td><td style="text-align:left">117 Workshoptage</td><td>–</td><td>–</td>
+          <td>{{ m.honorarstunden|de }}</td><td>–</td>
+        </tr>
+        <tr class="sum">
+          <td>Summe</td><td></td><td></td>
+          <td>{{ (m.summen.netto + m.honorarstunden)|de }}</td>
+          <td>{{ m.summen.af1|de }}</td>
+          <td>{{ (m.summen.af5_team + m.summen.af5_honorar)|de }}</td>
+          <td>{{ m.summen.reserve|de }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="bars">
+      {% set maxv = (m.personen|map(attribute='netto')|max) * 1.02 %}
+      {% for p in m.personen %}
+      <div class="row">
+        <div class="nm">{{ p.name }}</div>
+        <div class="track">
+          <div class="seg a1" style="width:{{ (p.af1 / maxv * 100)|round(2) }}%"></div>
+          <div class="seg a5" style="width:{{ (p.af5 / maxv * 100)|round(2) }}%"></div>
+          <div class="seg rs" style="width:{{ (p.reserve / maxv * 100)|round(2) }}%"></div>
+        </div>
+        <div class="tt">{{ p.netto|de }} h</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--green)"></i>Freie Jugendarbeit (AF 1)</span>
+      <span><i style="background:var(--amber)"></i>Schulworkshops / curricular (AF 5)</span>
+      <span><i style="background:var(--grey)"></i>Leitung, Verwaltung, IT</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.05em">
+      DECKUNG DES VERTRAGSSOLLS · {{ m.soll.ges|de }} h gebunden ·
+      {{ m.reserve|de }} h Reserve ({{ m.reserve_pct|round(0)|int }} %)
+    </div>
+    {% set g = m.kapazitaet %}
+    <div class="cov">
+      <div class="a1" style="width:{{ (m.summen.af1 / g * 100)|round(2) }}%;background:var(--green)">
+        AF 1 {{ m.summen.af1|de }} h</div>
+      <div style="width:{{ (m.honorarstunden / g * 100)|round(2) }}%;background:var(--amber)"></div>
+      <div style="width:{{ (m.summen.af5_team / g * 100)|round(2) }}%;background:var(--sand)"></div>
+      <div style="width:{{ (m.reserve / g * 100)|round(2) }}%;background:var(--grey)"></div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);padding:4px 0 8px">
+      Verfügbar: {{ g|de }} h · {{ arbeitstage|int }} Arbeitstage = {{ wochen }} Wochen
+    </div>
+  </div>
+
+  <footer>
+    Quelle: {{ quelle }}<br>
+    Stand der Daten: {{ stand }} · Stunden im Jahr = Wochenstunden / 5 × {{ arbeitstage|int }} Arbeitstage.
+  </footer>
+</div>
+</body>
+</html>
