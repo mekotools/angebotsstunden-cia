@@ -21,7 +21,14 @@ templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "t
 templates.env.filters["de"] = lambda n: f"{round(float(n)):,}".replace(",", ".")
 templates.env.filters["g"] = lambda n: f"{float(n):g}".replace(".", ",")
 
-NC_URL = os.environ.get("NC_URL", "https://nc.cia-spandau.org").rstrip("/")
+def _norm_url(u: str) -> str:
+    u = (u or "").strip().rstrip("/")
+    if u and not u.startswith(("http://", "https://")):
+        u = "https://" + u
+    return u or "http://localhost"
+
+
+NC_URL = _norm_url(os.environ.get("NC_URL", ""))
 NC_USER = os.environ.get("NC_USER", "")
 NC_PASS = os.environ.get("NC_PASS", "")
 NC_PATH = os.environ.get(
@@ -73,13 +80,24 @@ def _model(force: bool = False) -> tuple[dict, dict]:
 
 @app.get("/healthz")
 def healthz():
-    c = _load()
-    return {"ok": True, "bytes": len(c["bytes"]), "stand": c["stand"], "quelle": c["quelle"]}
+    """Liveness für den Container-Healthcheck: immer 200, Datenstand als Feld."""
+    try:
+        c = _load()
+        return {"ok": True, "data_ok": True, "bytes": len(c["bytes"]),
+                "stand": c["stand"], "quelle": c["quelle"]}
+    except Exception as e:
+        return {"ok": True, "data_ok": False, "error": str(e)[:200],
+                "quelle": f"{NC_URL} · {NC_PATH}"}
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, jahr: int = 2026, refresh: int = 0):
-    model, c = _model(bool(refresh))
+    try:
+        model, c = _model(bool(refresh))
+    except HTTPException as e:
+        return HTMLResponse(
+            f"<h1>Daten nicht verfügbar</h1><p>{e.detail}</p>"
+            f"<p>Quelle: {NC_URL} · {NC_PATH}</p>", status_code=503)
     if jahr not in model["jahre"]:
         jahr = 2026
     return templates.TemplateResponse(request, "index.html", {
