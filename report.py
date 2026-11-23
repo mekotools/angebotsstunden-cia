@@ -153,7 +153,7 @@ def _balken(pdf, m, y):
     return y + 5
 
 
-def build(model: dict, stand: str) -> bytes:
+def build(model: dict, stand: str, org: str = "Medienkompetenzzentrum") -> bytes:
     pdf = PDF(orientation="P", unit="mm", format="A4")
     pdf.add_font("D", "", FONT)
     pdf.add_font("D", "B", FONTB)
@@ -164,7 +164,7 @@ def build(model: dict, stand: str) -> bytes:
         m = model["jahre"][jahr]
         pdf.add_page()
         pdf.set_font("D", "B", 7.2); pdf.set_text_color(*PETROL)
-        pdf.set_xy(16, 10); pdf.cell(100, 3.6, "MEDIENKOMPETENZZENTRUM CIA SPANDAU")
+        pdf.set_xy(16, 10); pdf.cell(100, 3.6, org.upper()[:48])
         pdf.set_font("D", "", 7.2); pdf.set_text_color(*MUTED)
         pdf.set_xy(120, 10); pdf.cell(74, 3.6, "Staakkato Kinder und Jugend e.V.", align="R")
         pdf.set_draw_color(214, 221, 224); pdf.set_line_width(0.3); pdf.line(16, 15, 194, 15)
@@ -173,12 +173,12 @@ def build(model: dict, stand: str) -> bytes:
         pdf.set_font("D", "B", 11); pdf.set_text_color(*accent)
         pdf.set_xy(148, 22.5); pdf.cell(30, 5, marker, align="R")
         pdf.set_font("D", "", 9.4); pdf.set_text_color(*MUTED)
-        pdf.set_xy(16, 30); pdf.cell(178, 4, "Wer arbeitet wie viel woran — Aufstellung für das Jugendamt Spandau")
+        pdf.set_xy(16, 30); pdf.cell(178, 4, "Wer arbeitet wie viel woran — Aufstellung für das Jugendamt")
         pdf.line(16, 35, 194, 35)
 
         soll = m["soll"]
         _kpi(pdf, 16, 38.5, 57, "VERTRAGLICH GESCHULDET", f"{fmt(soll['ges'])} h",
-             "§ 5 Nr. 1 · 5.000 + 1.828 · 38,08 €/h")
+             f"{fmt(soll['af1'])} + {fmt(soll['af5'])} h")
         _kpi(pdf, 75.5, 38.5, 57, "FREIE JUGENDARBEIT (AF 1)", f"{fmt(soll['af1'])} h",
              "standortgebundene Angebote")
         _kpi(pdf, 135, 38.5, 57, "CURRICULAR (AF 5)", f"{fmt(soll['af5'])} h",

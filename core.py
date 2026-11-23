@@ -4,9 +4,7 @@ from io import BytesIO
 import calendar
 import openpyxl
 
-SOLL_AF1 = 5000
-SOLL_AF5 = 1828
-SOLL_GES = SOLL_AF1 + SOLL_AF5
+
 
 
 def _zeitraum(von, bis):
@@ -22,6 +20,7 @@ def load(data: bytes) -> dict:
     arbeitstage = float(an["B5"].value)
     soll_af5 = float(an["B9"].value)
     soll_af1 = float(an["B8"].value)
+    soll_ges = float(an["B7"].value)
 
     jahre = {}
     for jahr in (2026, 2027):
@@ -69,7 +68,7 @@ def load(data: bytes) -> dict:
         for d in daten:
             d["af5"] = d["af5"] * k5
         kap = sum(d["netto"] for d in daten) + hon_h
-        res_soll = kap - SOLL_GES
+        res_soll = kap - soll_ges
         res_fix = sum(d["netto"] for d in daten if d["fix"])
         kr = (res_soll - res_fix) / sum(d["netto"] * d["res"] for d in daten if not d["fix"])
         for d in daten:
@@ -86,7 +85,7 @@ def load(data: bytes) -> dict:
                         af5_team=sum(d["af5"] for d in daten),
                         af5_honorar=hon_h,
                         reserve=sum(d["reserve"] for d in daten)),
-            soll=dict(af1=soll_af1, af5=soll_af5, ges=soll_af1 + soll_af5),
+            soll=dict(af1=soll_af1, af5=soll_af5, ges=soll_ges),
             reserve_pct=res_soll / kap * 100 if kap else 0,
         )
     return dict(jahre=ergebnis, arbeitstage=arbeitstage,

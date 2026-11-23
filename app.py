@@ -28,6 +28,8 @@ NC_PATH = os.environ.get(
     "NC_PATH", "1 Team CIA/Finanzierung CIA/Angebotsstunden-CIA-Modell.xlsx")
 LOCAL_FILE = os.environ.get("LOCAL_FILE", "")
 CACHE_SECONDS = int(os.environ.get("CACHE_SECONDS", "300"))
+APP_TITLE = os.environ.get("APP_TITLE", "Angebotsstunden")
+ORG = os.environ.get("ORG", "Medienkompetenzzentrum CIA Spandau")
 
 _lock = threading.Lock()
 _cache: dict = {"bytes": None, "ts": 0.0, "stand": "", "quelle": ""}
@@ -84,13 +86,14 @@ def index(request: Request, jahr: int = 2026, refresh: int = 0):
         "m": model["jahre"][jahr], "jahr": jahr,
         "jahre": sorted(model["jahre"]), "arbeitstage": model["arbeitstage"],
         "wochen": model["wochen"], "stand": c["stand"], "quelle": c["quelle"],
+        "app_title": APP_TITLE, "org": ORG,
     })
 
 
 @app.get("/export.pdf")
 def export_pdf():
     model, c = _model()
-    data = report.build(model, c["stand"])
+    data = report.build(model, c["stand"], ORG)
     return Response(data, media_type="application/pdf", headers={
         "Content-Disposition": 'inline; filename="Angebotsstunden-CIA.pdf"'})
 

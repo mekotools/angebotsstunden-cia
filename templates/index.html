@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Angebotsstunden CIA Spandau · {{ jahr }}</title>
+<title>{{ app_title }} · {{ org }} · {{ jahr }}</title>
 <style>
   :root{
     --petrol:#1e4b5a; --green:#2e7d6b; --amber:#c97f2e; --sand:#e2a864;
@@ -66,8 +66,8 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Angebotsstunden {{ jahr }}
-      <small>Medienkompetenzzentrum CIA Spandau · Staakkato Kinder und Jugend e.V.</small>
+    <h1>{{ app_title }} {{ jahr }}
+      <small>{{ org }}</small>
     </h1>
     <nav class="tabs">
       {% for j in jahre %}<a href="/?jahr={{ j }}" class="{{ 'on' if j == jahr else '' }}">{{ j }}</a>{% endfor %}
@@ -83,7 +83,7 @@
   <section class="kpis">
     <div class="kpi"><div class="l">Vertraglich geschuldet</div>
       <div class="v">{{ m.soll.ges|de }} h</div>
-      <div class="s">§ 5 Nr. 1 · 5.000 + 1.828 · 38,08 €/h</div></div>
+      <div class="s">{{ m.soll.af1|de }} + {{ m.soll.af5|de }} h</div></div>
     <div class="kpi" style="border-left-color:var(--green)"><div class="l">Freie Jugendarbeit (AF 1)</div>
       <div class="v">{{ m.soll.af1|de }} h</div>
       <div class="s">standortgebundene Angebote</div></div>
