@@ -182,14 +182,16 @@
           <span class="tag {{ 'p' if j == jahre[-1] }}">{{ jj.marker }} · {{ j }}</span>
           <span class="hint" style="font-size:11.5px;color:var(--muted)">AF 5 wird auf das Soll skaliert, Reserve nach Anteil</span>
         </div>
-        <div class="fields" style="grid-template-columns:1fr 1fr 1fr 1fr;margin-bottom:10px">
+        <div class="fields" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:8px">
           <div class="fld"><label for="h{{ s }}">Honorarstunden</label>
             <input id="h{{ s }}" name="h{{ s }}" value="{{ f['h' ~ s] }}" inputmode="decimal"></div>
           <div class="fld"><label for="wt{{ s }}">Workshoptage</label>
             <input id="wt{{ s }}" name="wt{{ s }}" value="{{ f['wt' ~ s] }}" inputmode="decimal"></div>
           <div class="fld"><label for="m{{ s }}">Kennzeichen</label>
             <input id="m{{ s }}" name="m{{ s }}" value="{{ f['m' ~ s] }}"></div>
-          <div class="fld"><label for="un{{ s }}">Untertitel</label>
+        </div>
+        <div class="fields one" style="margin-bottom:10px">
+          <div class="fld"><label for="un{{ s }}">Untertitel auf der A4-Seite</label>
             <input id="un{{ s }}" name="un{{ s }}" value="{{ f['un' ~ s] }}"></div>
         </div>
         <div class="tablescroll">
