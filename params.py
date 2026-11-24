@@ -373,5 +373,83 @@ def from_form(form) -> Params:
     return p
 
 
+SCHLUESSEL = ("w", "f", "u", "k", "at_fix", "at", "soll", "af1", "af5", "satz",
+              "titel", "org", "traeger", "h26", "h27", "wt26", "wt27", "n26", "n27")
+
+
+def betroffen(form) -> bool:
+    """Wurde mindestens ein bekannter Parameter übergeben?"""
+    return any(k in form for k in SCHLUESSEL)
+
+
+def overlay(base: Params, form) -> Params:
+    """Legt nur die tatsächlich übergebenen Felder über die Werte aus der XLSX.
+
+    Damit funktioniert auch ein einzelner Parameter in der URL (`?k=15`) — und
+    fehlende Felder fallen auf die Steuerungsdatei zurück statt auf Python-Konstanten.
+    """
+    w = dict(form)
+
+    def pick(key: str, current, cast=zahl):
+        if key not in w or str(w[key]).strip() == "":
+            return current
+        return cast(w[key])
+
+    p = replace(
+        base,
+        werktage=pick("w", base.werktage),
+        feiertage=pick("f", base.feiertage),
+        urlaub=pick("u", base.urlaub),
+        krank=pick("k", base.krank),
+        soll=pick("soll", base.soll),
+        soll_af1=pick("af1", base.soll_af1),
+        soll_af5=pick("af5", base.soll_af5),
+        satz=pick("satz", base.satz),
+        titel=str(w.get("titel") or base.titel),
+        org=str(w.get("org") or base.org),
+        traeger=str(w.get("traeger") or base.traeger),
+    )
+    if "at_fix" in w:
+        p.arbeitstage_fix = bool(str(w.get("at_fix") or "").strip())
+    if "at" in w and str(w["at"]).strip():
+        p.arbeitstage_wert = zahl(w["at"])
+    elif not p.arbeitstage_fix:
+        p.arbeitstage_wert = round(p.werktage - p.feiertage - p.urlaub - p.krank, 1)
+
+    jahre = {}
+    for jahr, j in base.jahre.items():
+        s = str(jahr)[-2:]
+        if f"n{s}" in w:
+            n = min(ganz(w[f"n{s}"], 0), MAX_ZEILEN)
+            personen = []
+            for i in range(n):
+                b = f"p{jahr}_{i}"
+                name = str(w.get(f"{b}_name") or "").strip()
+                if not name:
+                    continue
+                personen.append(Person(
+                    name=name,
+                    rolle=str(w.get(f"{b}_rolle") or "").strip(),
+                    wochenstunden=zahl(w.get(f"{b}_ws")),
+                    von=monat(w.get(f"{b}_von"), 1),
+                    bis=monat(w.get(f"{b}_bis"), 12),
+                    af5=zahl(w.get(f"{b}_af5")),
+                    res=zahl(w.get(f"{b}_res")),
+                ))
+        else:
+            personen = j.personen
+        jahre[jahr] = Jahr(
+            jahr=jahr,
+            honorarstunden=pick(f"h{s}", j.honorarstunden),
+            workshoptage=pick(f"wt{s}", j.workshoptage),
+            marker=str(w.get(f"m{s}") or j.marker),
+            untertitel=str(w.get(f"un{s}") or j.untertitel),
+            hinweis=str(w[f"hn{s}"]) if f"hn{s}" in w else j.hinweis,
+            personen=personen,
+        )
+    p.jahre = jahre
+    return p
+
+
 def modify(p: Params, **werte) -> Params:
     return replace(p, **werte)

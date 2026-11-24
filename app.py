@@ -95,14 +95,10 @@ def _basis_params() -> P.Params:
 
 
 def _aus_form(form) -> tuple[P.Params, dict]:
-    """Parameter aus Formular/Query — fehlende Felder aus der Steuerungsdatei."""
-    if "w" in form or "soll" in form:
-        p = P.from_form(form)
-        c = _load()
-        p.quelle = str(form.get("quelle") or c["quelle"])
-        p.stand = str(form.get("stand") or c["stand"])
-        return p, core.compute(p)
+    """Parameter aus der Steuerungsdatei, überschrieben von dem, was im Formular steht."""
     p = _basis_params()
+    if P.betroffen(form):
+        p = P.overlay(p, form)
     return p, core.compute(p)
 
 

@@ -96,3 +96,14 @@ def test_geschriebene_datei_wird_wieder_gelesen():
     assert p2.krank == 12
     assert p2.jahre[2026].personen[0].wochenstunden == 35
     assert p2.to_form() == p.to_form()
+
+
+def test_einzelner_parameter_in_der_url():
+    """?k=15 muss wirken — fehlende Felder kommen aus der Steuerungsdatei, nicht aus
+    Python-Konstanten, und die Personen bleiben stehen."""
+    import pymupdf
+    r = client.get("/export.pdf", params={"k": "15"})
+    assert r.status_code == 200
+    text = pymupdf.open(stream=r.content)[0].get_text().replace("\n", " ")
+    assert "Arbeitstage 214" in text
+    assert "Julia Hoffmann" in text

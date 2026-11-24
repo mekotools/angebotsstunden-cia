@@ -229,3 +229,16 @@ def test_warnung_bei_zu_vielen_zeilen(params):
     for _ in range(5):
         p.jahre[2026].personen.append(P.Person(name="X", wochenstunden=4, res=0.1))
     assert any("A4-Seite" in w for w in core.warnungen(p, core.compute(p)))
+
+
+def test_overlay_ueberschreibt_nur_das_uebergebene(rohdaten):
+    p = P.from_xlsx(rohdaten)
+    q = P.overlay(p, {"k": "15"})
+    assert q.krank == 15 and q.arbeitstage == 214
+    assert q.soll == p.soll and q.satz == p.satz
+    assert [x.name for x in q.jahre[2026].personen] == [x.name for x in p.jahre[2026].personen]
+    # Zeilenzahl im Formular ersetzt die Personenliste
+    q2 = P.overlay(p, {"n26": "1", "p2026_0_name": "Nur eine", "p2026_0_ws": "20",
+                       "p2026_0_res": "0,1"})
+    assert [x.name for x in q2.jahre[2026].personen] == ["Nur eine"]
+    assert len(q2.jahre[2027].personen) == len(p.jahre[2027].personen)
