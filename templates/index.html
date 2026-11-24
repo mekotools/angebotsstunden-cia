@@ -3,173 +3,350 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ app_title }} · {{ org }} · {{ jahr }}</title>
+<title>{{ p.titel }} · {{ p.org }}</title>
 <style>
   :root{
     --petrol:#1e4b5a; --green:#2e7d6b; --amber:#c97f2e; --sand:#e2a864;
-    --grey:#c6cdd1; --ink:#22313a; --muted:#6b7c85; --line:#dfe6e9; --bg:#f6f8f9;
+    --grey:#c6cdd1; --ink:#22313a; --muted:#6b7c85; --line:#dfe6e9; --bg:#f4f7f8;
+    --input:#fffdf4;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
-       font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
-  .wrap{max-width:1080px;margin:0 auto;padding:22px 20px 60px}
-  header{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;justify-content:space-between}
-  h1{font-size:23px;margin:0;letter-spacing:-.2px}
-  h1 small{display:block;font-size:13px;font-weight:400;color:var(--muted);margin-top:3px}
-  .tabs{display:flex;gap:6px}
-  .tabs a{padding:6px 14px;border-radius:999px;text-decoration:none;color:var(--petrol);
-          border:1px solid var(--line);background:#fff;font-size:14px}
-  .tabs a.on{background:var(--petrol);color:#fff;border-color:var(--petrol)}
-  .actions{display:flex;gap:8px;margin:16px 0 18px}
-  .btn{display:inline-block;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600;
-       font-size:14px;background:var(--petrol);color:#fff}
-  .btn.ghost{background:#fff;color:var(--petrol);border:1px solid var(--line)}
-  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
-  .kpi{background:#fff;border:1px solid var(--line);border-left:4px solid var(--petrol);
-       border-radius:10px;padding:12px 14px}
-  .kpi .l{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
-  .kpi .v{font-size:26px;font-weight:800;margin-top:2px}
-  .kpi .s{font-size:12px;color:var(--muted);margin-top:2px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 16px 8px;margin-bottom:16px}
-  table{width:100%;border-collapse:collapse;font-size:14px}
-  th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--petrol);
-     padding:8px 8px;text-align:right;font-weight:700}
-  th:first-child{text-align:left;border-radius:8px 0 0 0}
-  th:last-child{border-radius:0 8px 0 0}
-  td{padding:7px 8px;border-bottom:1px solid #eef2f3;text-align:right;font-variant-numeric:tabular-nums}
-  td:first-child{text-align:left}
-  td .role{display:block;font-size:11.5px;color:var(--muted);font-weight:400}
-  tbody tr:nth-child(even){background:#f8fafb}
-  tr.sum td{background:var(--petrol);color:#fff;font-weight:700;border:0}
-  tr.sum td:first-child{border-radius:0 0 0 8px}
-  tr.sum td:last-child{border-radius:0 0 8px 0}
-  .bars{margin:6px 0 4px}
-  .row{display:grid;grid-template-columns:150px 1fr 74px;align-items:center;gap:10px;padding:4px 0}
-  .row .nm{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .track{display:flex;height:16px;background:#f0f3f4;border-radius:4px;overflow:hidden}
-  .seg{height:100%}
-  .a1{background:var(--green)} .a5{background:var(--amber)} .rs{background:var(--grey)}
-  .row .tt{font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
-  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:10px 0 6px;flex-wrap:wrap}
-  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
-  .cov{display:flex;height:26px;border-radius:6px;overflow:hidden;margin:6px 0 2px}
-  .cov div{display:flex;align-items:center;justify-content:flex-start;color:#fff;font-size:11.5px;font-weight:700;padding-left:8px}
-  footer{margin-top:22px;font-size:12px;color:var(--muted);line-height:1.6}
-  @media(max-width:720px){
-    .kpis{grid-template-columns:1fr}
-    .row{grid-template-columns:96px 1fr 58px}
-    table{font-size:12.5px}
-    th,td{padding:6px 5px}
-  }
+       font:14.5px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+  .wrap{max-width:1440px;margin:0 auto;padding:0 18px 60px}
+  /* Aktionsleiste */
+  .bar{position:sticky;top:0;z-index:20;background:rgba(244,247,248,.96);
+       backdrop-filter:blur(6px);border-bottom:1px solid var(--line);
+       display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 0;margin-bottom:16px}
+  .bar h1{font-size:16px;margin:0;font-weight:800;letter-spacing:-.2px}
+  .bar h1 span{display:block;font-size:11.5px;font-weight:500;color:var(--muted)}
+  .bar .spacer{flex:1}
+  .btn{border:1px solid var(--petrol);background:var(--petrol);color:#fff;border-radius:8px;
+       padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;text-decoration:none;
+       display:inline-flex;align-items:center;gap:6px}
+  .btn.ghost{background:#fff;color:var(--petrol);border-color:var(--line)}
+  .btn.ghost:hover{border-color:var(--petrol)}
+  .btn.small{padding:5px 10px;font-size:12.5px;font-weight:600}
+  .btn:disabled{opacity:.55;cursor:default}
+  /* Raster */
+  .cols{display:grid;grid-template-columns:352px minmax(0,1fr);gap:18px;align-items:start}
+  @media(max-width:1080px){.cols{grid-template-columns:1fr}}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--petrol);
+           margin:0 0 10px;font-weight:800}
+  .card h2 em{font-style:normal;font-weight:600;color:var(--muted);text-transform:none;letter-spacing:0}
+  .fields{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
+  .fields.one{grid-template-columns:1fr}
+  .fld{display:flex;flex-direction:column;gap:3px}
+  .fld label{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.02em}
+  .fld input,.fld textarea{width:100%;padding:6px 8px;border:1px solid #dbe3e6;border-radius:7px;
+       font:inherit;font-size:13.5px;background:var(--input);font-variant-numeric:tabular-nums}
+  .fld input:focus,.fld textarea:focus{outline:2px solid #b9d3dd;border-color:var(--petrol)}
+  .fld .hint{font-size:10.5px;color:var(--muted)}
+  .check{display:flex;gap:7px;align-items:flex-start;font-size:12.5px;color:var(--muted);
+         margin-top:2px;line-height:1.35}
+  .check input{margin-top:2px}
+  .pills{display:flex;gap:6px;flex-wrap:wrap}
+  .pills label{border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:12.5px;
+       cursor:pointer;background:#fff;color:var(--petrol);font-weight:600}
+  .pills input{position:absolute;opacity:0;pointer-events:none}
+  .pills input:checked + span{font-weight:800}
+  .pills label:has(input:checked){background:var(--petrol);color:#fff;border-color:var(--petrol)}
+  /* Eingabetabelle */
+  table.eingabe{width:100%;border-collapse:collapse}
+  table.eingabe th{background:var(--petrol);color:#fff;font-size:10.5px;text-transform:uppercase;
+       letter-spacing:.04em;padding:6px 5px;text-align:left;font-weight:700;white-space:nowrap}
+  table.eingabe th.num{text-align:center}
+  table.eingabe td{padding:3px 3px;border-bottom:1px solid #eef2f3;vertical-align:middle}
+  table.eingabe td input{width:100%;border:1px solid transparent;background:var(--input);
+       border-radius:5px;padding:4px 5px;font:inherit;font-size:13px;
+       font-variant-numeric:tabular-nums}
+  table.eingabe td input:hover{border-color:#dbe3e6}
+  table.eingabe td input:focus{outline:2px solid #b9d3dd;border-color:var(--petrol)}
+  table.eingabe td.w-name input{font-weight:700}
+  table.eingabe td.w-xs{width:52px} table.eingabe td.w-s{width:64px} table.eingabe td.w-m{width:74px}
+  table.eingabe td.del{width:28px;text-align:center}
+  .del button{border:0;background:transparent;color:#b3c0c6;font-size:15px;cursor:pointer;line-height:1;padding:2px 4px}
+  .del button:hover{color:#c0392b}
+  .tablescroll{overflow-x:auto}
+  .yeartop{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between;margin-bottom:8px}
+  .yeartop .tag{font-size:11px;font-weight:800;letter-spacing:.04em;color:#fff;background:var(--amber);
+       border-radius:4px;padding:2px 7px}
+  .yeartop .tag.p{background:var(--green)}
+  .sumline{display:flex;flex-wrap:wrap;gap:14px;background:#f8fafb;border:1px solid var(--line);
+       border-radius:8px;padding:8px 12px;margin-top:10px;font-size:13px;color:var(--muted)}
+  .sumline b{color:var(--ink);font-size:13.5px}
+  .sumline .gut b{color:var(--green)} .sumline .knapp b{color:var(--amber)}
+  .warnbox{margin-top:10px}
+  .warnbox p.warn{background:#fdf3e7;border-left:3px solid var(--amber);border-radius:4px;
+       padding:6px 10px;margin:4px 0;font-size:12.8px;color:#7a4d16}
+  /* Vorschau */
+  .preview{background:#e9eef0;border:1px solid var(--line);border-radius:12px;padding:10px}
+  .preview .kopf{display:flex;gap:10px;align-items:center;justify-content:space-between;
+       font-size:12.5px;color:var(--muted);padding:0 4px 8px;flex-wrap:wrap}
+  .preview iframe{width:100%;height:min(88vh,1000px);border:0;border-radius:8px;background:#fff;display:block}
+  #banner{display:none;margin-bottom:12px;border-radius:8px;padding:9px 13px;font-size:13px;font-weight:600}
+  #banner.ok{display:block;background:#e8f5ee;color:#1c6b4b;border:1px solid #bfe3cf}
+  #banner.err{display:block;background:#fdecea;color:#a1281d;border:1px solid #f5c2bd}
+  footer{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.6}
+  a{color:var(--petrol)}
 </style>
 </head>
 <body>
+<form id="jf" method="get" action="/">
 <div class="wrap">
-  <header>
-    <h1>{{ app_title }} {{ jahr }}
-      <small>{{ org }}</small>
-    </h1>
-    <nav class="tabs">
-      {% for j in jahre %}<a href="/?jahr={{ j }}" class="{{ 'on' if j == jahr else '' }}">{{ j }}</a>{% endfor %}
-    </nav>
-  </header>
 
-  <div class="actions">
-    <a class="btn" href="/export.pdf" target="_blank" rel="noopener">PDF herunterladen</a>
-    <a class="btn ghost" href="/export.xlsx">Excel (Steuerungsdatei)</a>
-    <a class="btn ghost" href="/?jahr={{ jahr }}&refresh=1">Daten neu laden</a>
+  <div class="bar">
+    <h1>{{ p.titel }} <span>{{ p.org }} · Werte justieren, A4-Seite erzeugen</span></h1>
+    <div class="spacer"></div>
+    <button class="btn" type="submit" formaction="/export.pdf" formtarget="_blank">A4-PDF ansehen</button>
+    <button class="btn ghost" type="submit" formaction="/export.pdf?dl=1" formtarget="_blank">PDF herunterladen</button>
+    <button class="btn ghost" type="button" id="sichern">In Excel sichern</button>
+    <a class="btn ghost" href="/?refresh=1" title="Steuerungsdatei neu aus der Nextcloud lesen">Neu laden</a>
+    <a class="btn ghost" href="/">Zurücksetzen</a>
   </div>
 
-  <section class="kpis">
-    <div class="kpi"><div class="l">Vertraglich geschuldet</div>
-      <div class="v">{{ m.soll.ges|de }} h</div>
-      <div class="s">{{ m.soll.af1|de }} + {{ m.soll.af5|de }} h</div></div>
-    <div class="kpi" style="border-left-color:var(--green)"><div class="l">Freie Jugendarbeit (AF 1)</div>
-      <div class="v">{{ m.soll.af1|de }} h</div>
-      <div class="s">standortgebundene Angebote</div></div>
-    <div class="kpi" style="border-left-color:var(--amber)"><div class="l">Curricular (AF 5)</div>
-      <div class="v">{{ m.soll.af5|de }} h</div>
-      <div class="s">davon {{ m.honorarstunden|de }} h Honorarkräfte</div></div>
+  <div id="banner"></div>
+
+  <div class="cols">
+    <!-- linke Spalte: Annahmen, Vertrag, Texte, Ausgabe -->
+    <div>
+      <section class="card">
+        <h2>Annahmen <em>— Arbeitstage und Jahresstunden</em></h2>
+        <div class="fields">
+          <div class="fld"><label for="w">Werktage (Mo–Fr)</label>
+            <input id="w" name="w" value="{{ f.w }}" inputmode="decimal"></div>
+          <div class="fld"><label for="f">Feiertage (werktags)</label>
+            <input id="f" name="f" value="{{ f.f }}" inputmode="decimal"></div>
+          <div class="fld"><label for="u">Urlaubstage</label>
+            <input id="u" name="u" value="{{ f.u }}" inputmode="decimal"></div>
+          <div class="fld"><label for="k">Krankheitstage</label>
+            <input id="k" name="k" value="{{ f.k }}" inputmode="decimal"></div>
+          <div class="fld"><label for="at">Arbeitstage</label>
+            <input id="at" name="at" value="{{ f.at }}" inputmode="decimal"></div>
+          <div class="fld"><label>Wochen</label>
+            <input value="{{ m.wochen|g }}" disabled></div>
+        </div>
+        <label class="check"><input type="checkbox" name="at_fix" value="1" {% if f.at_fix %}checked{% endif %}>
+          <span>Arbeitstage von Hand setzen (sonst aus Werktage − Feiertage − Urlaub − Krankheit)</span></label>
+      </section>
+
+      <section class="card">
+        <h2>Vertrag <em>— Soll und Kostensatz</em></h2>
+        <div class="fields">
+          <div class="fld"><label for="soll">Leistungsstunden gesamt</label>
+            <input id="soll" name="soll" value="{{ f.soll }}" inputmode="decimal"></div>
+          <div class="fld"><label for="af1">davon AF 1</label>
+            <input id="af1" name="af1" value="{{ f.af1 }}" inputmode="decimal"></div>
+          <div class="fld"><label for="af5">davon AF 5</label>
+            <input id="af5" name="af5" value="{{ f.af5 }}" inputmode="decimal"></div>
+          <div class="fld"><label for="satz">Kostensatz €/h</label>
+            <input id="satz" name="satz" value="{{ f.satz }}" inputmode="decimal"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Kopfzeile <em>— Texte auf der A4-Seite</em></h2>
+        <div class="fields one">
+          <div class="fld"><label for="titel">Titel</label>
+            <input id="titel" name="titel" value="{{ f.titel }}"></div>
+          <div class="fld"><label for="org">Organisation</label>
+            <input id="org" name="org" value="{{ f.org }}"></div>
+          <div class="fld"><label for="traeger">Träger</label>
+            <input id="traeger" name="traeger" value="{{ f.traeger }}"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Seiten im PDF</h2>
+        <div class="pills">
+          <label><input type="radio" name="y" value="2026,2027" {{ 'checked' if seiten == '2026,2027' }}><span>beide Jahre</span></label>
+          {% for j in jahre %}
+          <label><input type="radio" name="y" value="{{ j }}" {{ 'checked' if seiten == j|string }}><span>nur {{ j }}</span></label>
+          {% endfor %}
+        </div>
+        <p class="fld" style="margin:10px 0 0"><span class="hint">Die Vorschau unten ist das echte PDF — keine Nachbildung.</span></p>
+      </section>
+    </div>
+
+    <!-- rechte Spalte: Eingabe je Jahr -->
+    <div>
+      {% from "_kennzahlen.html" import summe, warnungen_block %}
+      {% for j in jahre %}
+      {% set jj = p.jahre[j] %}
+      {% set s = j|string %}
+      {% set s = s[2:] %}
+      <section class="card">
+        <h2>Eingabe {{ j }} <em>— je Person einstellbar</em></h2>
+        <div class="yeartop">
+          <span class="tag {{ 'p' if j == jahre[-1] }}">{{ jj.marker }} · {{ j }}</span>
+          <span class="hint" style="font-size:11.5px;color:var(--muted)">AF 5 wird auf das Soll skaliert, Reserve nach Anteil</span>
+        </div>
+        <div class="fields" style="grid-template-columns:1fr 1fr 1fr 1fr;margin-bottom:10px">
+          <div class="fld"><label for="h{{ s }}">Honorarstunden</label>
+            <input id="h{{ s }}" name="h{{ s }}" value="{{ f['h' ~ s] }}" inputmode="decimal"></div>
+          <div class="fld"><label for="wt{{ s }}">Workshoptage</label>
+            <input id="wt{{ s }}" name="wt{{ s }}" value="{{ f['wt' ~ s] }}" inputmode="decimal"></div>
+          <div class="fld"><label for="m{{ s }}">Kennzeichen</label>
+            <input id="m{{ s }}" name="m{{ s }}" value="{{ f['m' ~ s] }}"></div>
+          <div class="fld"><label for="un{{ s }}">Untertitel</label>
+            <input id="un{{ s }}" name="un{{ s }}" value="{{ f['un' ~ s] }}"></div>
+        </div>
+        <div class="tablescroll">
+          <table class="eingabe">
+            <thead><tr>
+              <th>Mitarbeiter*in</th><th>Funktion</th><th class="num">Wochen&shy;stunden</th>
+              <th class="num">von</th><th class="num">bis</th><th class="num">AF 5 h</th>
+              <th class="num">Reserve</th><th></th>
+            </tr></thead>
+            <tbody id="rows{{ j }}">
+            {% for q in jj.personen %}
+            {% set b = 'p' ~ j ~ '_' ~ loop.index0 %}
+              <tr>
+                <td class="w-name"><input name="{{ b }}_name" value="{{ q.name }}"></td>
+                <td><input name="{{ b }}_rolle" value="{{ q.rolle }}"></td>
+                <td class="w-xs"><input name="{{ b }}_ws" value="{{ q.wochenstunden|g }}" inputmode="decimal"></td>
+                <td class="w-s"><input name="{{ b }}_von" value="{{ q.von }}" inputmode="numeric"></td>
+                <td class="w-s"><input name="{{ b }}_bis" value="{{ q.bis }}" inputmode="numeric"></td>
+                <td class="w-s"><input name="{{ b }}_af5" value="{{ q.af5|g }}" inputmode="decimal"></td>
+                <td class="w-s"><input name="{{ b }}_res" value="{{ q.res|g }}" inputmode="decimal"></td>
+                <td class="del"><button type="button" title="Zeile entfernen" onclick="delRow(this)">×</button></td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <input type="hidden" id="n{{ s }}" name="n{{ s }}" value="{{ jj.personen|length }}">
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn ghost small" type="button" onclick="addRow({{ j }})">+ Zeile</button>
+          <span class="hint" style="font-size:11.5px;color:var(--muted);align-self:center">
+            Reserve 1 = ganze Stelle nur Leitung/Verwaltung · leere Namen fallen raus</span>
+        </div>
+        <div id="sum{{ j }}">{{ summe(m.jahre[j]) }}</div>
+      </section>
+      {% endfor %}
+      <div id="warnungen">{{ warnungen_block(warnungen) }}</div>
+    </div>
+  </div>
+
+  <section class="card" style="margin-top:18px">
+    <h2>A4-Ausgabe <em>— so kommt es aus dem Drucker</em></h2>
+    <div class="preview">
+      <div class="kopf">
+        <span>Vorschau des PDF ({{ seiten }}). Änderungen oben aktualisieren sie automatisch.</span>
+        <a href="/export.pdf?{{ query }}&amp;y={{ seiten }}" target="_blank" rel="noopener">in neuem Tab öffnen</a>
+      </div>
+      <iframe id="pdf" title="A4-Vorschau" src="/export.pdf?{{ query }}&amp;y={{ seiten }}#view=FitH&amp;toolbar=0"></iframe>
+    </div>
   </section>
 
-  <div class="card">
-    <table>
-      <thead><tr>
-        <th>Mitarbeiter*in</th><th>Wochenstd.</th><th>im Projekt</th>
-        <th>Stunden im Jahr</th><th>AF 1</th><th>AF 5</th><th>Leitung/Verwaltung</th>
-      </tr></thead>
-      <tbody>
-      {% for p in m.personen %}
-        <tr>
-          <td><strong>{{ p.name }}</strong><span class="role">{{ p.rolle }}</span></td>
-          <td>{{ p.wochenstunden|g }}</td>
-          <td style="text-align:left">{{ p.zeitraum }}</td>
-          <td>{{ p.netto|de }}</td>
-          <td>{{ p.af1|de if p.af1 > 0.5 else '–' }}</td>
-          <td>{{ p.af5|de if p.af5 > 0.5 else '–' }}</td>
-          <td>{{ p.reserve|de }}</td>
-        </tr>
-      {% endfor %}
-        <tr>
-          <td><strong>Honorarkräfte (Pool)</strong><span class="role">externe Workshopleitungen</span></td>
-          <td>–</td><td style="text-align:left">117 Workshoptage</td><td>–</td><td>–</td>
-          <td>{{ m.honorarstunden|de }}</td><td>–</td>
-        </tr>
-        <tr class="sum">
-          <td>Summe</td><td></td><td></td>
-          <td>{{ (m.summen.netto + m.honorarstunden)|de }}</td>
-          <td>{{ m.summen.af1|de }}</td>
-          <td>{{ (m.summen.af5_team + m.summen.af5_honorar)|de }}</td>
-          <td>{{ m.summen.reserve|de }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <div class="bars">
-      {% set maxv = (m.personen|map(attribute='netto')|max) * 1.02 %}
-      {% for p in m.personen %}
-      <div class="row">
-        <div class="nm">{{ p.name }}</div>
-        <div class="track">
-          <div class="seg a1" style="width:{{ (p.af1 / maxv * 100)|round(2) }}%"></div>
-          <div class="seg a5" style="width:{{ (p.af5 / maxv * 100)|round(2) }}%"></div>
-          <div class="seg rs" style="width:{{ (p.reserve / maxv * 100)|round(2) }}%"></div>
-        </div>
-        <div class="tt">{{ p.netto|de }} h</div>
-      </div>
-      {% endfor %}
-    </div>
-    <div class="legend">
-      <span><i style="background:var(--green)"></i>Freie Jugendarbeit (AF 1)</span>
-      <span><i style="background:var(--amber)"></i>Schulworkshops / curricular (AF 5)</span>
-      <span><i style="background:var(--grey)"></i>Leitung, Verwaltung, IT</span>
-    </div>
-  </div>
-
-  <div class="card">
-    <div style="font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.05em">
-      DECKUNG DES VERTRAGSSOLLS · {{ m.soll.ges|de }} h gebunden ·
-      {{ m.reserve|de }} h Reserve ({{ m.reserve_pct|round(0)|int }} %)
-    </div>
-    {% set g = m.kapazitaet %}
-    <div class="cov">
-      <div class="a1" style="width:{{ (m.summen.af1 / g * 100)|round(2) }}%;background:var(--green)">
-        AF 1 {{ m.summen.af1|de }} h</div>
-      <div style="width:{{ (m.honorarstunden / g * 100)|round(2) }}%;background:var(--amber)"></div>
-      <div style="width:{{ (m.summen.af5_team / g * 100)|round(2) }}%;background:var(--sand)"></div>
-      <div style="width:{{ (m.reserve / g * 100)|round(2) }}%;background:var(--grey)"></div>
-    </div>
-    <div style="font-size:12px;color:var(--muted);padding:4px 0 8px">
-      Verfügbar: {{ g|de }} h · {{ arbeitstage|int }} Arbeitstage = {{ wochen }} Wochen
-    </div>
-  </div>
-
   <footer>
-    Quelle: {{ quelle }}<br>
-    Stand der Daten: {{ stand }} · Stunden im Jahr = Wochenstunden / 5 × {{ arbeitstage|int }} Arbeitstage.
+    Quelle: {{ quelle }}{% if stand %} · gelesen {{ stand }}{% endif %}.
+    „In Excel sichern“ schreibt die justierten Werte in die Steuerungsdatei zurück und legt vorher eine Sicherung an.
   </footer>
 </div>
+</form>
+
+<script>
+const form = document.getElementById('jf');
+const JA = [{{ jahre|join(', ') }}];
+let t = null;
+
+function qs() {
+  const u = new URLSearchParams();
+  for (const [k, v] of new FormData(form).entries()) {
+    if (k === 'at_fix' && !v) continue;
+    u.append(k, String(v));
+  }
+  return u;
+}
+function syncCounts() {
+  JA.forEach(j => {
+    const key = 'n' + String(j).slice(2);
+    const n = document.querySelectorAll('#rows' + j + ' tr').length;
+    const el = document.getElementById(key);
+    if (el) el.value = n;
+  });
+}
+function renumber(j) {
+  document.querySelectorAll('#rows' + j + ' tr').forEach((tr, i) => {
+    tr.querySelectorAll('[name]').forEach(el => {
+      el.name = el.name.replace(/^p\d+_\d+_/, 'p' + j + '_' + i + '_');
+    });
+  });
+  syncCounts();
+}
+function rowHtml(j, i, v) {
+  const b = 'p' + j + '_' + i;
+  return `<td class="w-name"><input name="${b}_name" value="${v.name}"></td>
+    <td><input name="${b}_rolle" value="${v.rolle}"></td>
+    <td class="w-xs"><input name="${b}_ws" value="${v.ws}" inputmode="decimal"></td>
+    <td class="w-s"><input name="${b}_von" value="${v.von}" inputmode="numeric"></td>
+    <td class="w-s"><input name="${b}_bis" value="${v.bis}" inputmode="numeric"></td>
+    <td class="w-s"><input name="${b}_af5" value="${v.af5}" inputmode="decimal"></td>
+    <td class="w-s"><input name="${b}_res" value="${v.res}" inputmode="decimal"></td>
+    <td class="del"><button type="button" title="Zeile entfernen" onclick="delRow(this)">×</button></td>`;
+}
+function addRow(j) {
+  const tb = document.getElementById('rows' + j);
+  if (tb.children.length >= {{ max_zeilen }}) return;
+  const tr = document.createElement('tr');
+  tr.innerHTML = rowHtml(j, tb.children.length, {name:'', rolle:'', ws:'', von:'1', bis:'12', af5:'0', res:'0,08'});
+  tb.appendChild(tr);
+  syncCounts();
+  tr.querySelector('input').focus();
+  change();
+}
+function delRow(btn) {
+  const tr = btn.closest('tr');
+  const j = tr.closest('tbody').id.replace('rows', '');
+  tr.remove();
+  renumber(Number(j));
+  change();
+}
+function update() {
+  const u = qs().toString();
+  const pdf = document.getElementById('pdf');
+  pdf.src = '/export.pdf?' + u + '#view=FitH&toolbar=0';
+  fetch('/kennzahlen?' + u).then(r => r.text()).then(html => {
+    const d = new DOMParser().parseFromString(html, 'text/html');
+    d.querySelectorAll('[data-j]').forEach(node => {
+      const key = node.getAttribute('data-j');
+      const ziel = key === 'warn' ? document.getElementById('warnungen')
+                                  : document.getElementById('sum' + key);
+      if (ziel) ziel.innerHTML = key === 'warn' ? (node.querySelector('.warnbox')?.outerHTML || '') : node.innerHTML;
+    });
+  }).catch(() => {});
+}
+function change() { clearTimeout(t); t = setTimeout(update, 450); }
+
+form.addEventListener('input', change);
+form.addEventListener('submit', () => clearTimeout(t));
+
+document.getElementById('sichern').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const banner = document.getElementById('banner');
+  btn.disabled = true; const alt = btn.textContent; btn.textContent = 'Sichere …';
+  try {
+    const r = await fetch('/sichern', {method: 'POST', body: qs(),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'}});
+    const d = await r.json();
+    if (d.ok) {
+      banner.className = 'ok';
+      banner.textContent = `In der Steuerungsdatei gesichert (${d.bytes} Bytes, Stand ${d.stand}). `
+        + `Sicherung vorher: ${d.sicherung.split('/').pop()}`;
+    } else {
+      banner.className = 'err';
+      banner.textContent = 'Nicht gesichert: ' + (d.fehler || 'unbekannter Fehler');
+    }
+  } catch (e) {
+    banner.className = 'err';
+    banner.textContent = 'Nicht gesichert: ' + e;
+  } finally {
+    btn.disabled = false; btn.textContent = alt;
+  }
+});
+syncCounts();
+</script>
 </body>
 </html>

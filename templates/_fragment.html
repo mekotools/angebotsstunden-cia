@@ -1,0 +1,5 @@
+{% from "_kennzahlen.html" import summe, warnungen_block %}
+<div class="frag">
+{% for j, mm in m.jahre.items() %}<div data-j="{{ j }}">{{ summe(mm) }}</div>{% endfor %}
+{% if warnungen %}<div data-j="warn">{{ warnungen_block(warnungen) }}</div>{% endif %}
+</div>

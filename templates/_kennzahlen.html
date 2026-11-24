@@ -1,0 +1,14 @@
+{# Bausteine, die Seite und Nachlade-Fragment gemeinsam nutzen. #}
+{% macro summe(mm) -%}
+<div class="sumline">
+  <span><b>{{ mm.summen.af1|de }}</b> h AF 1</span>
+  <span><b>{{ mm.summen.af5|de }}</b> h AF 5</span>
+  <span><b>{{ mm.summen.reserve|de }}</b> h Reserve</span>
+  <span><b>{{ mm.kapazitaet|de }}</b> h Kapazität</span>
+  <span class="{{ 'gut' if mm.deckung >= 100 else 'knapp' }}"><b>{{ '%.0f'|format(mm.deckung) }} %</b> gedeckt</span>
+</div>
+{%- endmacro %}
+
+{% macro warnungen_block(w) -%}
+{% if w %}<div class="warnbox">{% for x in w %}<p class="warn">{{ x }}</p>{% endfor %}</div>{% endif %}
+{%- endmacro %}

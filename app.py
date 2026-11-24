@@ -1,4 +1,10 @@
-"""Minimale Web-App: liest die Steuerungs-XLSX aus Nextcloud, zeigt die Auswertung, exportiert PDF/Excel."""
+"""Web-Auswertung Angebotsstunden CIA Spandau.
+
+Hauptausgabe ist die druckbare A4-Seite (PDF). Die Seite davor ist ein
+Justierformular: jeder Faktor und jede Zahl lässt sich ändern, die Vorschau ist
+das echte PDF. Datenquelle und Speicher ist die Steuerungsdatei (XLSX) in der
+Nextcloud — die App hält keine eigenen Daten.
+"""
 from __future__ import annotations
 
 import base64
@@ -10,16 +16,19 @@ import urllib.request
 from io import BytesIO
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import core
+import params as P
 import report
+import xlsx_write
 
 app = FastAPI(title="Angebotsstunden CIA Spandau")
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 templates.env.filters["de"] = lambda n: f"{round(float(n)):,}".replace(",", ".")
-templates.env.filters["g"] = lambda n: f"{float(n):g}".replace(".", ",")
+templates.env.filters["g"] = lambda n: P.fmt(n)
+
 
 def _norm_url(u: str) -> str:
     u = (u or "").strip().rstrip("/")
@@ -35,20 +44,24 @@ NC_PATH = os.environ.get(
     "NC_PATH", "1 Team CIA/Finanzierung CIA/Angebotsstunden-CIA-Modell.xlsx")
 LOCAL_FILE = os.environ.get("LOCAL_FILE", "")
 CACHE_SECONDS = int(os.environ.get("CACHE_SECONDS", "300"))
-APP_TITLE = os.environ.get("APP_TITLE", "Angebotsstunden")
-ORG = os.environ.get("ORG", "Medienkompetenzzentrum CIA Spandau")
 
 _lock = threading.Lock()
-_cache: dict = {"bytes": None, "ts": 0.0, "stand": "", "quelle": ""}
+_cache: dict = {"bytes": None, "ts": 0.0, "stand": "", "quelle": "", "backup": ""}
 
 
-def _dav_get() -> bytes:
-    url = f"{NC_URL}/remote.php/dav/files/{urllib.parse.quote(NC_USER)}/" + \
-          urllib.parse.quote(NC_PATH)
-    req = urllib.request.Request(url)
+def _dav_url(pfad: str) -> str:
+    return (f"{NC_URL}/remote.php/dav/files/{urllib.parse.quote(NC_USER)}/"
+            + urllib.parse.quote(pfad))
+
+
+def _dav(methode: str, pfad: str, daten: bytes | None = None) -> bytes:
+    req = urllib.request.Request(_dav_url(pfad), data=daten, method=methode)
     token = base64.b64encode(f"{NC_USER}:{NC_PASS}".encode()).decode()
     req.add_header("Authorization", f"Basic {token}")
-    with urllib.request.urlopen(req, timeout=30) as r:
+    if daten is not None:
+        req.add_header("Content-Type", "application/vnd.openxmlformats-officedocument."
+                                        "spreadsheetml.sheet")
+    with urllib.request.urlopen(req, timeout=45) as r:
         return r.read()
 
 
@@ -63,19 +76,39 @@ def _load(force: bool = False) -> dict:
         else:
             if not (NC_USER and NC_PASS):
                 raise HTTPException(500, "NC_USER/NC_PASS sind nicht gesetzt")
-            data = _dav_get()
-            quelle = f"Nextcloud: {NC_PATH}"
+            data = _dav("GET", NC_PATH)
+            quelle = f"Nextcloud-Datei „{NC_PATH}“"
         _cache.update(bytes=data, ts=time.time(), quelle=quelle,
                       stand=time.strftime("%d.%m.%Y %H:%M", time.localtime()))
         return _cache
 
 
-def _model(force: bool = False) -> tuple[dict, dict]:
-    c = _load(force)
+def _basis_params() -> P.Params:
+    c = _load()
     try:
-        return core.load(c["bytes"]), c
-    except Exception as e:  # pragma: no cover
+        p = P.from_xlsx(c["bytes"])
+    except Exception as e:
         raise HTTPException(500, f"Steuerungsdatei nicht lesbar: {e}")
+    p.quelle = c["quelle"]
+    p.stand = c["stand"]
+    return p
+
+
+def _aus_form(form) -> tuple[P.Params, dict]:
+    """Parameter aus Formular/Query — fehlende Felder aus der Steuerungsdatei."""
+    if "w" in form or "soll" in form:
+        p = P.from_form(form)
+        c = _load()
+        p.quelle = str(form.get("quelle") or c["quelle"])
+        p.stand = str(form.get("stand") or c["stand"])
+        return p, core.compute(p)
+    p = _basis_params()
+    return p, core.compute(p)
+
+
+def _seiten(jahre_param: str, p: P.Params) -> list[int]:
+    gewaehlt = [j for j in p.jahr_liste() if str(j) in (jahre_param or "")]
+    return gewaehlt or p.jahr_liste()
 
 
 @app.get("/healthz")
@@ -83,37 +116,59 @@ def healthz():
     """Liveness für den Container-Healthcheck: immer 200, Datenstand als Feld."""
     try:
         c = _load()
-        return {"ok": True, "data_ok": True, "bytes": len(c["bytes"]),
-                "stand": c["stand"], "quelle": c["quelle"]}
+        p = P.from_xlsx(c["bytes"])
+        return {"ok": True, "data_ok": True, "bytes": len(c["bytes"]), "stand": c["stand"],
+                "quelle": c["quelle"], "jahre": p.jahr_liste(),
+                "personen": {j: len(x.personen) for j, x in p.jahre.items()}}
     except Exception as e:
         return {"ok": True, "data_ok": False, "error": str(e)[:200],
                 "quelle": f"{NC_URL} · {NC_PATH}"}
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, jahr: int = 2026, refresh: int = 0):
+def index(request: Request, refresh: int = 0):
+    if refresh:
+        _load(force=True)
     try:
-        model, c = _model(bool(refresh))
+        p, model = _aus_form(request.query_params)
     except HTTPException as e:
         return HTMLResponse(
-            f"<h1>Daten nicht verfügbar</h1><p>{e.detail}</p>"
+            f"<h1>Steuerungsdatei nicht verfügbar</h1><p>{e.detail}</p>"
             f"<p>Quelle: {NC_URL} · {NC_PATH}</p>", status_code=503)
-    if jahr not in model["jahre"]:
-        jahr = 2026
+    form = p.to_form()
+    alle = ",".join(str(j) for j in p.jahr_liste())
+    seiten = request.query_params.get("y") or alle
+    if not set(seiten.split(",")) & {str(j) for j in p.jahr_liste()}:
+        seiten = alle
     return templates.TemplateResponse(request, "index.html", {
-        "m": model["jahre"][jahr], "jahr": jahr,
-        "jahre": sorted(model["jahre"]), "arbeitstage": model["arbeitstage"],
-        "wochen": model["wochen"], "stand": c["stand"], "quelle": c["quelle"],
-        "app_title": APP_TITLE, "org": ORG,
+        "p": p, "m": model, "f": form, "jahre": p.jahr_liste(),
+        "warnungen": core.warnungen(p, model),
+        "query": p.to_query(), "stand": p.stand, "quelle": p.quelle,
+        "seiten": seiten,
+        "max_zeilen": P.MAX_ZEILEN,
+    })
+
+
+@app.get("/kennzahlen", response_class=HTMLResponse)
+def kennzahlen(request: Request):
+    """Kontrollzahlen und Hinweise als Fragment — nach jeder Änderung neu geholt."""
+    try:
+        p, model = _aus_form(request.query_params)
+    except HTTPException as e:
+        return HTMLResponse(f"<p class='warn'>Steuerungsdatei nicht lesbar: {e.detail}</p>")
+    return templates.TemplateResponse(request, "_fragment.html", {
+        "p": p, "m": model, "warnungen": core.warnungen(p, model),
     })
 
 
 @app.get("/export.pdf")
-def export_pdf():
-    model, c = _model()
-    data = report.build(model, c["stand"], ORG)
-    return Response(data, media_type="application/pdf", headers={
-        "Content-Disposition": 'inline; filename="Angebotsstunden-CIA.pdf"'})
+def export_pdf(request: Request, dl: int = 0):
+    p, model = _aus_form(request.query_params)
+    seiten = _seiten(request.query_params.get("y", ""), p)
+    daten = report.build(model, p, seiten)
+    name = f"{p.titel.strip().replace(' ', '-')}-{'-'.join(str(j) for j in seiten)}.pdf"
+    return Response(daten, media_type="application/pdf", headers={
+        "Content-Disposition": f'{"attachment" if dl else "inline"}; filename="{name}"'})
 
 
 @app.get("/export.xlsx")
@@ -124,7 +179,31 @@ def export_xlsx():
                     headers={"Content-Disposition": 'attachment; filename="Angebotsstunden-CIA.xlsx"'})
 
 
-@app.get("/refresh")
-def refresh():
-    _load(force=True)
-    return Response(status_code=303, headers={"Location": "/"})
+@app.post("/sichern")
+async def sichern(request: Request):
+    """Schreibt die justierten Werte in die Steuerungsdatei zurück (mit Sicherung)."""
+    form = await request.form()
+    p, _ = _aus_form(form)
+    if not (NC_USER and NC_PASS) or LOCAL_FILE:
+        return JSONResponse({"ok": False,
+                             "fehler": "Ohne Nextcloud-Zugang wird nicht gesichert."}, status_code=400)
+    try:
+        alt = _load(force=True)["bytes"]
+        neu = xlsx_write.schreiben(alt, p)
+        stempel = time.strftime("%Y%m%d-%H%M%S")
+        basis = NC_PATH
+        sicherung = basis.rsplit(".xlsx", 1)[0] + f".sicherung-{stempel}.xlsx"
+        _dav("PUT", sicherung, alt)
+        _dav("PUT", basis, neu)
+        with _lock:
+            _cache.update(bytes=neu, ts=time.time(), backup=sicherung,
+                          stand=time.strftime("%d.%m.%Y %H:%M", time.localtime()))
+        return {"ok": True, "bytes": len(neu), "sicherung": sicherung,
+                "stand": _cache["stand"], "personen": {j: len(x.personen) for j, x in p.jahre.items()}}
+    except Exception as e:
+        return JSONResponse({"ok": False, "fehler": str(e)[:300]}, status_code=502)
+
+
+@app.get("/neu")
+def neu():
+    return Response(status_code=303, headers={"Location": "/?refresh=1"})
