@@ -45,12 +45,15 @@ Eine Person hat **einen oder mehrere Zeiträume** (Monat von … bis), jeder mit
 eigenen Wochenstunden, Urlaubs- und Krankheitstagen — damit lässt sich abbilden,
 dass jemand ab Juli seine Stunden erhöht. In der Personentabelle ist das „gleicher
 Name in Folgezeilen"; der Knopf **＋** teilt einen Zeitraum in der Mitte und legt
-den zweiten an. Leere Urlaubs-/Krankheitsfelder erben anteilig den Jahresanspruch
-aus den Annahmen. AF-5- und Reserve-Anteil gelten je Zeitraum.
+den zweiten an. Urlaubstage ergeben sich aus der Wochenarbeitszeit: `30 × Wochenstunden ÷ 40`,
+zusätzlich anteilig nach Monaten (32 h = 24 Tage, 20 h über ein halbes Jahr = 7,5).
+Leere Urlaubs-/Krankheitsfelder erben das — der graue Wert im Feld zeigt es an.
+AF-5- und Reserve-Anteil gelten je Zeitraum.
 
 ## Was justierbar ist
 
-Basisdaten: Bundesland, Urlaubsanspruch und Krankheitstage je Jahr.
+Basisdaten: Bundesland, **Urlaub bei Vollzeit (30 Tage)** mit Vollzeit-Wochenstunden
+(40 h) sowie Krankheitstage je Jahr.
 Vertrag: Leistungsstunden gesamt/AF 1/AF 5, Kostensatz, Titel, Organisation, Träger.
 Je Jahr: Honorarstunden, Workshoptage, Kennzeichen (IST/PLANUNG), Untertitel, Hinweis.
 Je Zeitraum: Name, Funktion, von/bis-Monat, Wochenstunden, Urlaub, Krankheit,
@@ -79,7 +82,8 @@ AF-5-Anteil, Reserve-Anteil — Zeilen lassen sich hinzufügen, teilen und lösc
 ## Steuerungsdatei
 
 `Basisdaten <Jahr>` (Monatstabelle Werktage/Feiertage/Arbeitstage plus Feiertagsliste),
-`Annahmen` (Krankheitstage, Sollwerte, Kostensatz, Bundesland, Urlaubsanspruch),
+`Annahmen` (Krankheitstage, Urlaub bei Vollzeit, Vollzeit-Wochenstunden, Sollwerte,
+Kostensatz, Bundesland),
 `Eingabe <Jahr>` (**eine Zeile je Zeitraum**; Arbeitstage und Stunden sind Formeln),
 `Auswertung <Jahr>` (eine Zeile je Person, Formeln inklusive k5 und kr) sowie
 `Quellen` und `Texte`. Leere Zellen werden als 0 gewertet; beim Sichern werden

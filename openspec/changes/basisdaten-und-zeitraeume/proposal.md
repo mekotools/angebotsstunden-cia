@@ -55,6 +55,20 @@ Vertragssoll skaliert werden.
   den Excel-Rückweg (zwei Zeiträume überleben das Sichern) und weiterhin die
   Excel-Gleichheit über die `formulas`-Auswertung.
 
+## Nachtrag: Urlaubsanspruch nach Wochenstunden
+
+Vollzeit hat **30 Urlaubstage**; Teilzeit bekommt den Anteil über die
+Wochenarbeitszeit, nicht über die Stelle: `Tage = 30 × Wochenstunden ÷ 40`,
+bei unterjährigen Zeiträumen zusätzlich × Monate/12. Die alte Pauschale von 24
+Tagen je Person war ein Einzelwert aus einer Arbeitszeitdatei (24 bei 32 h
+entspricht genau dieser Regel) und ist ersetzt.
+
+In der Steuerungsdatei stehen dafür zwei Annahmen (`Urlaub bei Vollzeit (Tage)`,
+`Vollzeit-Wochenstunden`), und die Spalten Urlaub/Krankheit haben je eine
+Eingabe- und eine „wirksam"-Spalte: bleibt die Eingabe leer, rechnet Excel
+denselben anteiligen Wert wie die App. Alte Dateien mit materialisierten
+24/10-Werten werden beim Lesen auf „automatisch" zurückgesetzt.
+
 ## Nicht enthalten
 
 * Urlaub/Krankheit als eigene Abwesenheitsliste je Datum (nur Tage je Zeitraum).

@@ -193,8 +193,9 @@ class Jahr:
 class Params:
     # Basisdaten
     land: str = STANDARD_LAND
-    urlaub: float = 24.0      # Jahresanspruch, Vorgabe für Abschnitte ohne eigene Angabe
-    krank: float = 10.0       # Jahresannahme, ebenso
+    urlaub_vollzeit: float = 30.0   # Urlaubstage bei Vollzeit
+    vollzeit_stunden: float = 40.0  # Wochenstunden einer Vollzeitstelle
+    krank: float = 10.0             # Jahresannahme, gilt anteilig je Zeitraum
 
     # Vertrag
     soll: float = 6828
@@ -227,10 +228,17 @@ class Params:
     def arbeitstage(self, jahr: int) -> float:
         return float(self.basis(jahr)["arbeitstage"])
 
+    def urlaub_anteilig(self, a: Abschnitt) -> float:
+        """Urlaubstage eines Abschnitts: 30 Tage bei Vollzeit, anteilig nach
+        Wochenstunden und Monaten. Maßgeblich ist die Wochenarbeitszeit, nicht die
+        Stelle — wer 20 von 40 Stunden arbeitet, hat den halben Anspruch."""
+        v = self.vollzeit_stunden or 40.0
+        return self.urlaub_vollzeit * (a.wochenstunden / v) * a.anteil
+
     def netto_tage(self, jahr: int, a: Abschnitt) -> float:
         """Arbeitstage eines Abschnitts nach Abzug von Urlaub und Krankheit."""
         at = basisdaten.arbeitstage(self.land, jahr, a.von, a.bis)
-        u = a.urlaub if a.urlaub is not None else self.urlaub * a.anteil
+        u = a.urlaub if a.urlaub is not None else self.urlaub_anteilig(a)
         k = a.krank if a.krank is not None else self.krank * a.anteil
         return max(0.0, at - u - k)
 
@@ -250,7 +258,8 @@ class Params:
         """
         d = {
             "land": self.land,
-            "u": fmt(self.urlaub, 1), "k": fmt(self.krank, 1),
+            "u": fmt(self.urlaub_vollzeit, 1), "vz": fmt(self.vollzeit_stunden, 1),
+            "k": fmt(self.krank, 1),
             "soll": fmt(self.soll), "af1": fmt(self.soll_af1), "af5": fmt(self.soll_af5),
             "satz": fmt(self.satz, 2),
             "titel": self.titel, "org": self.org, "traeger": self.traeger,
@@ -276,6 +285,7 @@ class Params:
                 d[f"{r}_bis"] = str(a.bis)
                 d[f"{r}_ws"] = fmt(a.wochenstunden, 1)
                 d[f"{r}_u"] = "" if a.urlaub is None else fmt(a.urlaub, 1)
+                d[f"{r}_u_auto"] = fmt(self.urlaub_anteilig(a), 1)
                 d[f"{r}_k"] = "" if a.krank is None else fmt(a.krank, 1)
                 d[f"{r}_af5"] = fmt(a.af5, 1)
                 d[f"{r}_res"] = fmt(a.res, 3)
@@ -324,13 +334,11 @@ def _quellen(ws) -> dict[str, str]:
     return d
 
 
-def _personen_aus_blatt(ws, alt: bool, urlaub_jahr: float, krank_jahr: float) -> list[Person]:
+def _personen_aus_blatt(ws, layout: str) -> list[Person]:
     """Liest das Blatt 'Eingabe <Jahr>'.
 
-    Neues Format: A Name, B Funktion, C von, D bis, E Wochenstunden,
-    F Urlaub, G Krankheit, H AF 5, I Reserve-Anteil.
-    Altes Format: A Name, B Funktion, C Wochenstunden, D von, E bis,
-    F AF 5, G Reserve-Anteil — Urlaub/Krankheit kamen aus den Annahmen.
+    Die Spalten hängen vom Format ab (siehe ``_layout``); ``alt`` liest
+    Wochenstunden aus C und den Zeitraum aus D/E, die neueren Formate umgekehrt.
     """
     personen: list[Person] = []
     index: dict[str, Person] = {}
@@ -339,7 +347,7 @@ def _personen_aus_blatt(ws, alt: bool, urlaub_jahr: float, krank_jahr: float) ->
         name = str(ws.cell(row=r, column=1).value).strip()
         if not name:
             break
-        if alt:
+        if layout == "alt":
             a = Abschnitt(
                 von=monat(ws.cell(row=r, column=4).value, 1),
                 bis=monat(ws.cell(row=r, column=5).value, 12),
@@ -347,7 +355,7 @@ def _personen_aus_blatt(ws, alt: bool, urlaub_jahr: float, krank_jahr: float) ->
                 af5=zahl(ws.cell(row=r, column=6).value),
                 res=zahl(ws.cell(row=r, column=7).value),
             )
-        else:
+        elif layout == "v1":
             a = Abschnitt(
                 von=monat(ws.cell(row=r, column=3).value, 1),
                 bis=monat(ws.cell(row=r, column=4).value, 12),
@@ -356,6 +364,16 @@ def _personen_aus_blatt(ws, alt: bool, urlaub_jahr: float, krank_jahr: float) ->
                 krank=optional_zahl(ws.cell(row=r, column=7).value),
                 af5=zahl(ws.cell(row=r, column=8).value),
                 res=zahl(ws.cell(row=r, column=9).value),
+            )
+        else:
+            a = Abschnitt(
+                von=monat(ws.cell(row=r, column=3).value, 1),
+                bis=monat(ws.cell(row=r, column=4).value, 12),
+                wochenstunden=zahl(ws.cell(row=r, column=5).value),
+                urlaub=optional_zahl(ws.cell(row=r, column=6).value),
+                krank=optional_zahl(ws.cell(row=r, column=8).value),
+                af5=zahl(ws.cell(row=r, column=10).value),
+                res=zahl(ws.cell(row=r, column=11).value),
             )
         if name in index:
             index[name].abschnitte.append(a)
@@ -368,9 +386,19 @@ def _personen_aus_blatt(ws, alt: bool, urlaub_jahr: float, krank_jahr: float) ->
     return personen
 
 
-def _ist_neues_format(ws) -> bool:
-    kopf = str(ws.cell(row=3, column=3).value or "").strip().lower()
-    return kopf.startswith("von")
+def _layout(ws) -> str:
+    """Erkennt das Spaltenformat des Blatts 'Eingabe <Jahr>'.
+
+    ``alt``  – A Name, B Funktion, C Wochenstunden, D von, E bis, F AF 5, G Reserve
+    ``v1``   – … C von, D bis, E Stunden, F Urlaub, G Krank, H AF 5, I Reserve
+    ``v2``   – … F Urlaub (Eingabe), G Urlaub wirksam, H Krank (Eingabe),
+               I Krank wirksam, J AF 5, K Reserve
+    """
+    kopf_c = str(ws.cell(row=3, column=3).value or "").strip().lower()
+    if not kopf_c.startswith("von"):
+        return "alt"
+    kopf_g = str(ws.cell(row=3, column=7).value or "").strip().lower()
+    return "v2" if "wirksam" in kopf_g else "v1"
 
 
 def from_xlsx(data: bytes) -> Params:
@@ -379,17 +407,34 @@ def from_xlsx(data: bytes) -> Params:
         raise ValueError("Blatt 'Annahmen' fehlt in der Steuerungsdatei")
     an = wb["Annahmen"]
     q = _quellen(wb["Quellen"]) if "Quellen" in wb.sheetnames else {}
-    land = str(q.get("Bundesland") or STANDARD_LAND).strip()
+    # Annahmen über die Beschriftung lesen, nicht über die Zeilennummer: die
+    # Reihenfolge ändert sich, wenn eine Annahme dazukommt.
+    at: dict[str, object] = {}
+    for r in range(1, an.max_row + 1):
+        label = an.cell(row=r, column=1).value
+        if isinstance(label, str) and label.strip():
+            at.setdefault(label.strip(), an.cell(row=r, column=2).value)
+
+    def ann(*namen, default: float = 0.0) -> float:
+        for n in namen:
+            if n in at and at[n] is not None:
+                return zahl(at[n], default)
+        return float(default)
+
+    land = str(at.get("Bundesland") or q.get("Bundesland") or STANDARD_LAND).strip()
     if land not in basisdaten.BUNDESLAENDER:
         land = STANDARD_LAND
     p = Params(
         land=land,
-        urlaub=zahl(q.get("Urlaubsanspruch"), 24),
-        krank=zahl(_zelle(an, "B4", 10)),
-        soll=zahl(_zelle(an, "B7", 6828)),
-        soll_af1=zahl(_zelle(an, "B8", 5000)),
-        soll_af5=zahl(_zelle(an, "B9", 1828)),
-        satz=zahl(_zelle(an, "B10", 38.08), 38.08),
+        urlaub_vollzeit=ann("Urlaub bei Vollzeit (Tage)", "Urlaub bei Vollzeit",
+                            default=zahl(q.get("Urlaub bei Vollzeit") or
+                                         q.get("Urlaub bei Vollzeit (Tage)"), 30)),
+        vollzeit_stunden=ann("Vollzeit-Wochenstunden", default=zahl(q.get("Vollzeit-Wochenstunden"), 40)),
+        krank=ann("Krankheitstage je Jahr (Vorgabe)", "Krankheitstage je Jahr", default=10),
+        soll=ann("Leistungsstunden gesamt", default=6828),
+        soll_af1=ann("davon AF 1", default=5000),
+        soll_af5=ann("davon AF 5", default=1828),
+        satz=ann("Kostensatz (€/h)", "Kostensatz", default=38.08),
     )
 
     texte = {}
@@ -407,8 +452,7 @@ def from_xlsx(data: bytes) -> Params:
     for jahr in sorted({int(s.split()[-1]) for s in wb.sheetnames
                         if s.startswith("Eingabe ") and s.split()[-1].isdigit()}):
         ws = wb[f"Eingabe {jahr}"]
-        personen = _personen_aus_blatt(ws, alt=not _ist_neues_format(ws),
-                                       urlaub_jahr=p.urlaub, krank_jahr=p.krank)
+        personen = _personen_aus_blatt(ws, _layout(ws))
         j = Jahr(
             jahr=jahr,
             honorarstunden=_honorar(wb[f"Auswertung {jahr}"])
@@ -422,13 +466,25 @@ def from_xlsx(data: bytes) -> Params:
         p.jahre[jahr] = j
     if not p.jahre:
         raise ValueError("Keine Blätter 'Eingabe <Jahr>' gefunden")
+    # Altbestand: bis 11/2026 stand der Urlaub pauschal bei 24 Tagen je Jahr und
+    # wurde beim Sichern als 24 × Monatsanteil in die Zeiträume geschrieben. Solche
+    # Werte gelten als „automatisch", damit die neue Regel (30 bei Vollzeit,
+    # anteilig nach Wochenstunden) greift, ohne dass jemand 17 Felder leert.
+    if "Urlaub bei Vollzeit" not in q and "Urlaub bei Vollzeit (Tage)" not in q:
+        for j in p.jahre.values():
+            for person in j.personen:
+                for a in person.abschnitte:
+                    if a.urlaub is not None and abs(a.urlaub - 24.0 * a.anteil) < 0.05:
+                        a.urlaub = None
+                    if a.krank is not None and abs(a.krank - p.krank * a.anteil) < 0.05:
+                        a.krank = None
     p.quelle = texte.get("quelle", "")
     return p
 
 
 # ---------------------------------------------------------------- aus HTTP
 
-def _personen_aus_form(werte, jahr: int, urlaub_jahr: float, krank_jahr: float) -> list[Person]:
+def _personen_aus_form(werte, jahr: int) -> list[Person]:
     """Formularzeilen → Personen. Gleicher Name in Folgezeilen = gleiche Person."""
     s = str(jahr)[-2:]
     n = min(ganz(werte.get(f"n{s}"), 0), MAX_ZEILEN)
@@ -466,7 +522,8 @@ def from_form(form) -> Params:
         land = base.land
     p = Params(
         land=land,
-        urlaub=zahl(werte.get("u"), base.urlaub),
+        urlaub_vollzeit=zahl(werte.get("u"), base.urlaub_vollzeit),
+        vollzeit_stunden=zahl(werte.get("vz"), base.vollzeit_stunden),
         krank=zahl(werte.get("k"), base.krank),
         soll=zahl(werte.get("soll"), base.soll),
         soll_af1=zahl(werte.get("af1"), base.soll_af1),
@@ -485,14 +542,14 @@ def from_form(form) -> Params:
             marker=str(werte.get(f"m{s}") or STANDARD_JAHR.get(jahr, {}).get("marker", "")),
             untertitel=str(werte.get(f"un{s}") or STANDARD_JAHR.get(jahr, {}).get("untertitel", "")),
             hinweis=str(werte.get(f"hn{s}") or ""),
-            personen=_personen_aus_form(werte, jahr, p.urlaub, p.krank),
+            personen=_personen_aus_form(werte, jahr),
         )
     p.quelle = str(werte.get("quelle") or "")
     p.stand = str(werte.get("stand") or "")
     return p
 
 
-SCHLUESSEL = ("land", "u", "k", "soll", "af1", "af5", "satz",
+SCHLUESSEL = ("land", "u", "vz", "k", "soll", "af1", "af5", "satz",
               "titel", "org", "traeger", "h26", "h27", "wt26", "wt27", "n26", "n27")
 
 
@@ -520,7 +577,8 @@ def overlay(base: Params, form) -> Params:
         land = base.land
     p = replace(
         base, land=land, _basis={},
-        urlaub=pick("u", base.urlaub),
+        urlaub_vollzeit=pick("u", base.urlaub_vollzeit),
+        vollzeit_stunden=pick("vz", base.vollzeit_stunden),
         krank=pick("k", base.krank),
         soll=pick("soll", base.soll),
         soll_af1=pick("af1", base.soll_af1),
@@ -535,7 +593,7 @@ def overlay(base: Params, form) -> Params:
     for jahr, j in base.jahre.items():
         s = str(jahr)[-2:]
         if f"n{s}" in w:
-            personen = _personen_aus_form(w, jahr, p.urlaub, p.krank)
+            personen = _personen_aus_form(w, jahr)
         else:
             personen = j.personen
         # URL-Einzelwerte für Urlaub/Krankheit wirken auf alle Abschnitte anteilig

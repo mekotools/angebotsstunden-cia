@@ -285,7 +285,8 @@ def _fuss(pdf, m, model, p, y_unten):
     herkunft = (
         f"{m['jahr']}: {m['land']} {m['arbeitstage']:g} Arbeitstage = {m['werktage']:g} Werktage "
         f"− {m['feiertage_werktags']:g} Feiertage auf Werktagen (Kalender, Blatt Basisdaten); "
-        f"Urlaub {p.urlaub:g} / Krankheit {p.krank:g} Tage je Jahr, in Zeiträumen anteilig."
+        f"Urlaub {p.urlaub_vollzeit:g} Tage bei Vollzeit ({p.vollzeit_stunden:g} h) anteilig nach "
+        f"Wochenstunden, Krankheit {p.krank:g} Tage je Jahr anteilig."
     )
     zeilen = [
         f"Basis: {quelle}" + (f", Stand {p.stand}." if p.stand else "."),

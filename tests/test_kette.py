@@ -86,11 +86,11 @@ def test_zahlen_des_freigegebenen_entwurfs(model):
     """Referenz der abgenommenen A4-Seite, nach der Basisdaten-Korrektur."""
     m = model["jahre"][2026]
     soll = {
-        "Julia Hoffmann": (348.8, 150.8, 0, 198.0),
-        "Johannes Wiener": (1320, 1181.5, 29.5, 109.0),
-        "Till Steinmetz": (1408, 1207.5, 84.3, 116.2),
-        "Felix Ramm": (704, 522.4, 0, 181.6),
-        "Sandra Rahn": (154, 0, 0, 154),
+        "Julia Hoffmann": (348.8, 130.9, 0, 217.9),
+        "Johannes Wiener": (1329.0, 1178.8, 29.5, 120.8),
+        "Till Steinmetz": (1408.0, 1195.8, 84.3, 127.9),
+        "Felix Ramm": (742.4, 531.6, 0, 210.8),
+        "Sandra Rahn": (169.0, 0, 0, 169.0),
     }
     ist = {d["name"]: (d["stunden"], d["af1"], d["af5"], d["reserve"]) for d in m["personen"]}
     for name, (std, af1, af5, res) in soll.items():
@@ -98,8 +98,8 @@ def test_zahlen_des_freigegebenen_entwurfs(model):
         assert ist[name][1] == pytest.approx(af1, abs=0.6), name
         assert ist[name][2] == pytest.approx(af5, abs=0.6), name
         assert ist[name][3] == pytest.approx(res, abs=0.6), name
-    assert round(m["kapazitaet"]) == 7950
-    assert model["jahre"][2027]["kapazitaet"] == pytest.approx(8029, abs=0.6)
+    assert round(m["kapazitaet"]) == 8078
+    assert model["jahre"][2027]["kapazitaet"] == pytest.approx(8189, abs=0.6)
 
 
 def test_zeitraeume_teilen_die_stunden(params):
@@ -116,9 +116,11 @@ def test_zeitraeume_teilen_die_stunden(params):
     d = next(x for x in m["personen"] if x["name"] == person.name)
     at1 = basisdaten.arbeitstage(p.land, 2026, 1, 6)
     at2 = basisdaten.arbeitstage(p.land, 2026, 7, 12)
+    u1 = p.urlaub_anteilig(person.abschnitte[0])   # 20 h, halbes Jahr = 7,5 Tage
+    u2 = p.urlaub_anteilig(person.abschnitte[1])   # 40 h, halbes Jahr = 15 Tage
     assert len(d["abschnitte"]) == 2
-    assert d["abschnitte"][0]["stunden"] == pytest.approx(20 / 5 * (at1 - 12 - 5))
-    assert d["abschnitte"][1]["stunden"] == pytest.approx(40 / 5 * (at2 - 12 - 5))
+    assert d["abschnitte"][0]["stunden"] == pytest.approx(20 / 5 * (at1 - u1 - 5))
+    assert d["abschnitte"][1]["stunden"] == pytest.approx(40 / 5 * (at2 - u2 - 5))
     assert d["stunden"] == pytest.approx(d["abschnitte"][0]["stunden"] + d["abschnitte"][1]["stunden"])
     assert d["wochenstunden_text"] == "20 → 40"
     # Vertragssummen stimmen weiterhin
@@ -126,14 +128,17 @@ def test_zeitraeume_teilen_die_stunden(params):
     assert m["summen"]["reserve"] == pytest.approx(m["kapazitaet"] - p.soll, abs=0.5)
 
 
-def test_zeitraum_erbt_urlaub_und_krankheit_anteilig(params):
-    """Leere Felder = anteilig aus dem Jahresanspruch."""
-    a = P.Abschnitt(von=7, bis=12, wochenstunden=30)
+def test_urlaub_haengt_an_den_wochenstunden(params):
+    """30 Tage bei Vollzeit (40 h): 20 h / halbes Jahr = 7,5 Tage Urlaub."""
+    a = P.Abschnitt(von=7, bis=12, wochenstunden=20)
     p = P.modify(params, jahre={2026: P.Jahr(jahr=2026, personen=[
         P.Person(name="Halbjahr", abschnitte=[a])])})
     m = core.compute(p)["jahre"][2026]
-    assert m["personen"][0]["urlaub"] == pytest.approx(12)
+    assert m["personen"][0]["urlaub"] == pytest.approx(7.5)
     assert m["personen"][0]["krank"] == pytest.approx(5)
+    # Vollzeit, ganzes Jahr = 30 Tage; 32 h = 24 Tage
+    assert params.urlaub_anteilig(P.Abschnitt(wochenstunden=40)) == pytest.approx(30)
+    assert params.urlaub_anteilig(P.Abschnitt(wochenstunden=32)) == pytest.approx(24)
 
 
 def test_formular_versteht_komma():
@@ -150,7 +155,7 @@ def test_rueckschreiben_bleibt_lesbar(rohdaten, params):
     neu = xlsx_write.schreiben(rohdaten, params)
     p2 = P.from_xlsx(neu)
     assert p2.soll == params.soll and p2.soll_af1 == params.soll_af1
-    assert p2.land == params.land and p2.urlaub == params.urlaub
+    assert p2.land == params.land and p2.urlaub_vollzeit == params.urlaub_vollzeit
     for jahr in params.jahre:
         assert p2.arbeitstage(jahr) == pytest.approx(params.arbeitstage(jahr))
         assert len(p2.jahre[jahr].personen) == len(params.jahre[jahr].personen)

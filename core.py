@@ -26,7 +26,7 @@ from params import Params
 
 def _abschnitt(p: Params, jahr: int, a) -> dict:
     at = basisdaten.arbeitstage(p.land, jahr, a.von, a.bis)
-    u = a.urlaub if a.urlaub is not None else p.urlaub * a.anteil
+    u = a.urlaub if a.urlaub is not None else p.urlaub_anteilig(a)
     k = a.krank if a.krank is not None else p.krank * a.anteil
     netto = max(0.0, at - u - k)
     return dict(
@@ -108,7 +108,8 @@ def compute(p: Params) -> dict:
     jahre = {jahr: _jahr(p, jahr) for jahr in p.jahr_liste()}
     return dict(
         jahre=jahre, land=p.land,
-        urlaub=p.urlaub, krank=p.krank,
+        urlaub_vollzeit=p.urlaub_vollzeit, vollzeit_stunden=p.vollzeit_stunden,
+        krank=p.krank,
         soll=dict(gesamt=p.soll, af1=p.soll_af1, af5=p.soll_af5), satz=p.satz,
         titel=p.titel, org=p.org, traeger=p.traeger,
     )

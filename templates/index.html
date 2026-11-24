@@ -127,13 +127,17 @@
             </select></div>
         </div>
         <div class="fields" style="margin-top:8px">
-          <div class="fld"><label for="u">Urlaubsanspruch (Jahr)</label>
+          <div class="fld"><label for="u">Urlaub bei Vollzeit (Tage)</label>
             <input id="u" name="u" value="{{ f.u }}" inputmode="decimal"></div>
+          <div class="fld"><label for="vz">Vollzeit-Wochenstunden</label>
+            <input id="vz" name="vz" value="{{ f.vz }}" inputmode="decimal"></div>
           <div class="fld"><label for="k">Krankheitstage (Jahr)</label>
             <input id="k" name="k" value="{{ f.k }}" inputmode="decimal"></div>
         </div>
         <p class="hint" style="margin:8px 0 0;font-size:11.5px;color:var(--muted)">
-          Leere Urlaubs-/Krankheitsfelder in einem Zeitraum erben anteilig diese Jahreswerte.</p>
+          Urlaubstage eines Zeitraums = {{ f.u }} × Wochenstunden ÷ {{ f.vz }}, zusätzlich
+          anteilig nach Monaten (30 Tage bei 40 h = 24 Tage bei 32 h).
+          Leere Urlaubs-/Krankheitsfelder erben das; der graue Wert im Feld zeigt es an.</p>
         <table class="eingabe" style="margin-top:10px">
           <thead><tr><th>Jahr</th><th class="num">Werktage</th><th class="num">Feiertage</th>
             <th class="num">Arbeitstage</th></tr></thead>
@@ -231,7 +235,7 @@
                 <td class="w-s"><input name="{{ b }}_von" value="{{ a.von }}" inputmode="numeric"></td>
                 <td class="w-s"><input name="{{ b }}_bis" value="{{ a.bis }}" inputmode="numeric"></td>
                 <td class="w-xs"><input name="{{ b }}_ws" value="{{ a.wochenstunden|g1 }}" inputmode="decimal"></td>
-                <td class="w-xs"><input name="{{ b }}_u" value="{{ '' if a.urlaub is none else a.urlaub|g1 }}" inputmode="decimal" placeholder="auto"></td>
+                <td class="w-xs"><input name="{{ b }}_u" value="{{ '' if a.urlaub is none else a.urlaub|g1 }}" inputmode="decimal" placeholder="{{ f[b ~ '_u_auto'] if (b ~ '_u_auto') in f else 'auto' }}"></td>
                 <td class="w-xs"><input name="{{ b }}_k" value="{{ '' if a.krank is none else a.krank|g1 }}" inputmode="decimal" placeholder="auto"></td>
                 <td class="w-s"><input name="{{ b }}_af5" value="{{ a.af5|g1 }}" inputmode="decimal"></td>
                 <td class="w-s"><input name="{{ b }}_res" value="{{ a.res|g3 }}" inputmode="decimal"></td>
