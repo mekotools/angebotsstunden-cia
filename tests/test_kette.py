@@ -192,6 +192,16 @@ def test_zwei_zeitraeume_ueberleben_das_excel(rohdaten):
     assert q2.abschnitte[0].wochenstunden == 20 and q2.abschnitte[1].wochenstunden == 35
 
 
+def test_sichern_bricht_bei_verstellten_zeitraeumen_ab(rohdaten, params):
+    """Selbstprüfung: passt die geschriebene Datei nicht zu den Eingaben, wird
+    nicht gespeichert — sonst verbiegen Zeiträume still."""
+    neu = xlsx_write.schreiben(rohdaten, params)
+    verstellt = P.from_xlsx(neu)
+    verstellt.jahre[2026].personen[0].abschnitte[0].bis = 12
+    with pytest.raises(ValueError):
+        xlsx_write._selbstpruefung(neu, verstellt)
+
+
 def test_excel_formeln_rechnen_wie_die_app(rohdaten, params):
     """Unabhängiger Prüfer: die 'formulas'-Bibliothek wertet die geschriebene
     Arbeitsmappe aus. Die Zahlen müssen mit core.compute übereinstimmen — sonst

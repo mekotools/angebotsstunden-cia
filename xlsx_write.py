@@ -367,4 +367,33 @@ def schreiben(data: bytes, p: Params) -> bytes:
     wb.properties.title = f"{p.titel} — Steuerungsdatei"
     out = BytesIO()
     wb.save(out)
-    return out.getvalue()
+    daten = out.getvalue()
+    _selbstpruefung(daten, p)
+    return daten
+
+
+def _struktur(p: Params) -> list[tuple]:
+    """Personen und Zeiträume als vergleichbare Liste (Name, von, bis, Stunden)."""
+    return [(jahr, q.name, a.von, a.bis, round(a.wochenstunden, 2))
+            for jahr, j in sorted(p.jahre.items())
+            for q in j.personen for a in q.abschnitte]
+
+
+def _selbstpruefung(daten: bytes, p: Params) -> None:
+    """Liest die eben geschriebene Datei zurück und vergleicht die Zeiträume.
+
+    Schreibt das Blatt anders, als das Modell es meint (Spalten vertauscht,
+    Zeile verloren), bricht das Sichern ab — die Datei in der Nextcloud bleibt
+    dann unangetastet. Genau dieser Fehler hat schon einmal Zeiträume verbogen.
+    """
+    from params import from_xlsx
+
+    zurueck = _struktur(from_xlsx(daten))
+    erwartet = _struktur(p)
+    if zurueck != erwartet:
+        fehlt = [x for x in erwartet if x not in zurueck][:3]
+        zuviel = [x for x in zurueck if x not in erwartet][:3]
+        raise ValueError(
+            "Die geschriebene Datei passt nicht zu den Eingaben "
+            f"(erwartet {len(erwartet)} Zeiträume, gelesen {len(zurueck)}): "
+            f"fehlt {fehlt}, unerwartet {zuviel}")
