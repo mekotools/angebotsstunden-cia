@@ -1,9 +1,16 @@
 """Schreibt die Parameter in die Steuerungsdatei zurück.
 
-Die XLSX bleibt die Datenquelle: Blätter ``Annahmen`` und ``Eingabe <Jahr>``
-tragen die Eingaben, ``Auswertung <Jahr>`` rechnet sie mit **denselben** Formeln
-wie die App (Faktoren k5 und kr als eigene Zellen), ``Texte`` hält Überschriften.
-Blatt ``Quellen`` bleibt inhaltlich erhalten.
+Die XLSX bleibt die Datenquelle:
+
+* ``Basisdaten <Jahr>`` — Werktage, Feiertage und Arbeitstage je Monat eines
+  Jahres, berechnet aus dem Kalender (Bundesland steht im Blatt ``Quellen``).
+* ``Annahmen`` — Vertrag, Jahresannahmen.
+* ``Eingabe <Jahr>`` — **eine Zeile je Zeitraum** (Monat von … bis) mit eigenen
+  Wochenstunden, Urlaubs- und Krankheitstagen. Arbeitstage und Stunden rechnet
+  das Blatt selbst.
+* ``Auswertung <Jahr>`` — eine Zeile je Person, summiert ihre Zeiträume und
+  rechnet mit denselben Formeln wie die App (k5 und kr als eigene Zellen).
+* ``Texte`` — Überschriften der A4-Seite.
 
 So zeigen App und Excel nach dem Sichern dieselben Zahlen — auch wenn Zeilen
 hinzukommen oder wegfallen, weil die Formeln für die neue Zeilenzahl neu gesetzt
@@ -15,15 +22,16 @@ from io import BytesIO
 
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
 
-from params import Params, STANDARD_TEXTE
+import basisdaten
+from params import Params
 
 PETROL = "FF1E4B5A"
 GELB = "FFFFF2CC"
 GRAU = "FFF2F5F6"
 
-JAHRES_NAMEN = {2026: "", 2027: ""}
+MONATSNAMEN = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+               "August", "September", "Oktober", "November", "Dezember"]
 
 
 def _kopf(ws, spalten: list[str], zeile: int = 3):
@@ -41,7 +49,7 @@ def _wert(ws, zeile: int, spalte: int, wert, gelb: bool = True):
     return c
 
 
-def _leeren(ws, ab_zeile: int, bis_spalte: int = 8):
+def _leeren(ws, ab_zeile: int, bis_spalte: int = 12):
     for r in range(ab_zeile, ws.max_row + 1):
         for c in range(1, bis_spalte + 1):
             ws.cell(row=r, column=c).value = None
@@ -51,7 +59,7 @@ def _herkunft_alt(ws) -> dict[str, str]:
     d = {}
     r = 4
     while ws.cell(row=r, column=1).value:
-        d[str(ws.cell(row=r, column=1).value).strip()] = str(ws.cell(row=r, column=8).value or "")
+        d[str(ws.cell(row=r, column=1).value).strip()] = str(ws.cell(row=r, column=12).value or "")
         r += 1
     return d
 
@@ -59,17 +67,18 @@ def _herkunft_alt(ws) -> dict[str, str]:
 def _annahmen(wb, p: Params):
     ws = wb["Annahmen"]
     werte = [
-        ("Krankheitstage je Jahr", p.krank, "Annahme; aus den Nachweisen nicht vollständig ablesbar"),
-        ("Arbeitstage", p.arbeitstage, "Werktage − Feiertage − Urlaub − Krankheit" if not p.arbeitstage_fix
-         else "von Hand gesetzt"),
-        ("Produktive Wochen", round(p.arbeitstage / 5, 2), "Arbeitstage / 5"),
+        ("Krankheitstage je Jahr (Vorgabe)", p.krank,
+         "Annahme; gilt anteilig für Zeiträume ohne eigene Angabe"),
+        ("Arbeitstage erstes Jahr", p.arbeitstage(p.jahr_liste()[0]),
+         "Werktage − Feiertage, Blatt Basisdaten (Kalender, nicht geschätzt)"),
+        ("Arbeitstage zweites Jahr", p.arbeitstage(p.jahr_liste()[-1]),
+         "Werktage − Feiertage, Blatt Basisdaten"),
         ("Leistungsstunden gesamt", p.soll, "Vertrag § 5 Nr. 1"),
         ("davon AF 1", p.soll_af1, ""),
         ("davon AF 5", p.soll_af5, ""),
         ("Kostensatz (€/h)", p.satz, "Leistungsvertrag § 5 Nr. 1"),
-        ("Werktage je Jahr", p.werktage, "Kalender Mo–Fr (Blatt Quellen)"),
-        ("Feiertage auf Werktagen", p.feiertage, "Blatt Quellen"),
-        ("Urlaubsanspruch (Tage)", p.urlaub, "Blatt Quellen"),
+        ("Bundesland", p.land, "bestimmt die Feiertage (Blatt Basisdaten)"),
+        ("Urlaubsanspruch (Tage)", p.urlaub, "Jahresanspruch; gilt anteilig je Zeitraum"),
     ]
     for i, (label, wert, grund) in enumerate(werte, start=4):
         a = ws.cell(row=i, column=1, value=label)
@@ -77,53 +86,126 @@ def _annahmen(wb, p: Params):
         _wert(ws, i, 2, wert)
         c = ws.cell(row=i, column=3, value=grund)
         c.font = Font(size=9, color="FF6B7C85")
-    ws.column_dimensions["A"].width = 28
-    ws.column_dimensions["B"].width = 12
-    ws.column_dimensions["C"].width = 52
+    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["B"].width = 14
+    ws.column_dimensions["C"].width = 56
 
 
-def _eingabe(wb, p: Params, jahr: int):
+def _basisdaten(wb, p: Params, jahr: int) -> str:
+    """Blatt mit der Monatstabelle; liefert den Blattnamen für Formeln."""
+    name = f"Basisdaten {jahr}"
+    if name in wb.sheetnames:
+        ws = wb[name]
+        _leeren(ws, 1)
+    else:
+        ws = wb.create_sheet(name)
+    b = p.basis(jahr)
+    ws.cell(row=1, column=1, value=f"Basisdaten {jahr} — {b['land']}").font = Font(bold=True, size=11)
+    ws.cell(row=2, column=1,
+            value="Aus dem Kalender gerechnet: Werktage = Mo–Fr, Feiertage nach Landesrecht, "
+                  "Arbeitstage = Werktage − Feiertage auf Werktagen.").font = Font(
+        size=9, color="FF6B7C85")
+    _kopf(ws, ["Monat", "Werktage (Mo–Fr)", "Feiertage werktags", "Arbeitstage"], zeile=3)
+    for i, z in enumerate(b["monate"]):
+        r = 4 + i
+        ws.cell(row=r, column=1, value=MONATSNAMEN[i]).font = Font(size=10)
+        for sp, wert in ((2, z["werktage"]), (3, z["feiertage"]), (4, z["arbeitstage"])):
+            c = ws.cell(row=r, column=sp, value=wert)
+            c.alignment = Alignment(horizontal="center")
+    r_sum = 4 + len(b["monate"])
+    ws.cell(row=r_sum, column=1, value="Jahr gesamt").font = Font(bold=True, size=10)
+    for sp in (2, 3, 4):
+        c = ws.cell(row=r_sum, column=sp, value=f"=SUM({chr(64 + sp)}4:{chr(64 + sp)}{r_sum - 1})")
+        c.font = Font(bold=True)
+        c.alignment = Alignment(horizontal="center")
+
+    r_fe = r_sum + 2
+    ws.cell(row=r_fe, column=1, value="Gesetzliche Feiertage").font = Font(bold=True, size=10)
+    ws.cell(row=r_fe + 1, column=1, value="Datum").font = Font(size=9, color="FF6B7C85")
+    ws.cell(row=r_fe + 1, column=2, value="Name").font = Font(size=9, color="FF6B7C85")
+    for i, (datum, name_feiertag) in enumerate(b["daten"]):
+        ws.cell(row=r_fe + 2 + i, column=1, value=datum).alignment = Alignment(horizontal="left")
+        ws.cell(row=r_fe + 2 + i, column=2, value=name_feiertag).font = Font(size=9)
+    ws.column_dimensions["A"].width = 26
+    ws.column_dimensions["B"].width = 20
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 14
+    return name
+
+
+def _effektiv(p: Params, a) -> tuple[float, float]:
+    """Urlaub und Krankheit eines Abschnitts als Zahl (leer = anteilig).
+
+    Bewusst ungerundet: die XLSX soll exakt dieselben Arbeitstage ergeben wie die
+    App, sonst weichen Excel und PDF in der zweiten Nachkommastelle ab.
+    """
+    u = a.urlaub if a.urlaub is not None else p.urlaub * a.anteil
+    k = a.krank if a.krank is not None else p.krank * a.anteil
+    return float(u), float(k)
+
+
+def _eingabe(wb, p: Params, jahr: int, basis_blatt: str):
     ws = wb[f"Eingabe {jahr}"]
     alt = _herkunft_alt(ws)
     _leeren(ws, 1)
     titel = ws.cell(row=1, column=1, value=f"Eingabe {jahr} (gelb = änderbar)")
     titel.font = Font(bold=True, size=11)
-    _kopf(ws, ["Mitarbeiter*in", "Funktion", "Wochenstunden", "von Monat", "bis Monat",
-               "AF 5 (h)", "Reserve-Anteil", "Herkunft"])
-    for i, q in enumerate(p.jahre[jahr].personen):
-        r = 4 + i
-        a = ws.cell(row=r, column=1, value=q.name)
-        a.font = Font(bold=True, size=10)
-        ws.cell(row=r, column=2, value=q.rolle).font = Font(size=10)
-        _wert(ws, r, 3, q.wochenstunden)
-        _wert(ws, r, 4, q.von)
-        _wert(ws, r, 5, q.bis)
-        _wert(ws, r, 6, q.af5)
-        _wert(ws, r, 7, q.res)
-        c = ws.cell(row=r, column=8, value=alt.get(q.name, "im Formular gepflegt"))
-        c.font = Font(size=9, color="FF6B7C85")
-        for sp in (3, 6, 7):
-            ws.cell(row=r, column=sp).number_format = "#,##0.0" if sp == 3 else "#,##0.0##"
+    ws.cell(row=2, column=1,
+            value="Eine Zeile je Zeitraum. Gleicher Name in Folgezeilen = gleiche Person "
+                  "(z. B. Stundenänderung ab Juli).").font = Font(size=9, color="FF6B7C85")
+    _kopf(ws, ["Mitarbeiter*in", "Funktion", "von Monat", "bis Monat", "Wochenstunden",
+               "Urlaubstage", "Krankheitstage", "AF 5 (h)", "Reserve-Anteil",
+               "Arbeitstage", "Stunden", "Herkunft"])
+    q = f"'{basis_blatt}'"
+    r = 4
+    for person in p.jahre[jahr].personen:
+        for a in person.abschnitte:
+            u, k = _effektiv(p, a)
+            z = ws.cell(row=r, column=1, value=person.name)
+            z.font = Font(bold=True, size=10)
+            ws.cell(row=r, column=2, value=person.rolle).font = Font(size=10)
+            _wert(ws, r, 3, a.von)
+            _wert(ws, r, 4, a.bis)
+            _wert(ws, r, 5, a.wochenstunden)
+            _wert(ws, r, 6, u)
+            _wert(ws, r, 7, k)
+            _wert(ws, r, 8, a.af5)
+            _wert(ws, r, 9, a.res)
+            # Arbeitstage des Zeitraums: Summe der Monatszellen aus den Basisdaten
+            monate = "+".join(f"{q}!D{4 + m - 1}" for m in range(a.von, a.bis + 1))
+            ws.cell(row=r, column=10, value=f"={monate}")
+            ws.cell(row=r, column=11, value=f"=E{r}/5*(J{r}-F{r}-G{r})")
+            c = ws.cell(row=r, column=12, value=alt.get(person.name, "im Formular gepflegt"))
+            c.font = Font(size=9, color="FF6B7C85")
+            for sp in (5, 8, 9):
+                ws.cell(row=r, column=sp).number_format = "#,##0.0##"
+            for sp in (10, 11):
+                ws.cell(row=r, column=sp).number_format = "#,##0.0"
+            r += 1
     ws.column_dimensions["A"].width = 22
-    ws.column_dimensions["B"].width = 30
-    for sp, breite in (("C", 12), ("D", 9), ("E", 9), ("F", 9), ("G", 12), ("H", 46)):
+    ws.column_dimensions["B"].width = 28
+    for sp, breite in (("C", 10), ("D", 10), ("E", 12), ("F", 11), ("G", 13),
+                       ("H", 10), ("I", 12), ("J", 11), ("K", 11), ("L", 34)):
         ws.column_dimensions[sp].width = breite
     ws.freeze_panes = "A4"
+    return r - 1  # letzte Datenzeile
 
 
-def _auswertung(wb, p: Params, jahr: int):
-    """Tabelle plus Summenblock. Die Faktoren k5/kr stehen als Zellen darunter,
-    damit Excel und App nachweislich gleich rechnen."""
+def _auswertung(wb, p: Params, jahr: int, letzte_eingabe: int):
+    """Eine Zeile je Person. Die Faktoren k5/kr stehen als Zellen darunter,
+    damit Excel und App nachweisbar gleich rechnen."""
     ws = wb[f"Auswertung {jahr}"]
     _leeren(ws, 1, 8)
-    n = len(p.jahre[jahr].personen)
+    j = p.jahre[jahr]
+    n = len(j.personen)
     erste, letzte = 5, 4 + n
 
     ws.cell(row=1, column=1, value=f"Auswertung {jahr}").font = Font(bold=True, size=11)
     ws.cell(row=2, column=1,
-            value="Rechnet ausschließlich aus den Blättern Eingabe und Annahmen.").font = Font(
+            value="Rechnet ausschließlich aus den Blättern Eingabe, Basisdaten und Annahmen.").font = Font(
         size=9, color="FF6B7C85")
-    _kopf(ws, ["Mitarbeiter*in", "Stunden im Jahr", "AF 1", "AF 5", "Reserve"], zeile=4)
+    _kopf(ws, ["Mitarbeiter*in", "Stunden im Jahr", "AF 1", "AF 5", "Reserve",
+               "Reserve-Anteil"], zeile=4)
 
     r_sum = letzte + 1
     r_hon = r_sum + 1
@@ -139,23 +221,30 @@ def _auswertung(wb, p: Params, jahr: int):
     r_kr = r_var + 1
 
     q = f"'Eingabe {jahr}'"
-    q_erste, q_letzte = 4, 3 + n   # Eingabe hat den Kopf in Zeile 3, Daten ab Zeile 4
-    for i in range(n):
-        r = erste + i      # Zeile im Blatt Auswertung
-        qr = 4 + i         # zugehörige Zeile im Blatt Eingabe
-        ws.cell(row=r, column=1, value=f"={q}!A{qr}")
-        ws.cell(row=r, column=2, value=f"={q}!C{qr}/5*Annahmen!$B$5*({q}!E{qr}-{q}!D{qr}+1)/12")
-        ws.cell(row=r, column=3, value=f"=B{r}-D{r}-E{r}")
-        ws.cell(row=r, column=4, value=f"={q}!F{qr}*$B${r_k5}")
-        ws.cell(row=r, column=5,
-                value=f"=IF({q}!G{qr}>=0.999,B{r},B{r}*{q}!G{qr}*$B${r_kr})")
+    for i, person in enumerate(j.personen):
+        z = erste + i
+        # Zeilen dieser Person im Blatt Eingabe
+        zeilen = []
+        r_eingabe = 4
+        for vorherige in j.personen:
+            if vorherige is person:
+                zeilen = list(range(r_eingabe, r_eingabe + len(person.abschnitte)))
+                break
+            r_eingabe += len(vorherige.abschnitte)
+        ws.cell(row=z, column=1, value=person.name)
+        ws.cell(row=z, column=2, value="=" + "+".join(f"{q}!K{x}" for x in zeilen))
+        ws.cell(row=z, column=4, value="=(" + "+".join(f"{q}!H{x}" for x in zeilen) + f")*$B${r_k5}")
+        ws.cell(row=z, column=6, value="=" + "+".join(f"{q}!I{x}" for x in zeilen))
+        ws.cell(row=z, column=5, value=f"=IF(F{z}>=0.999,B{z},B{z}*F{z}*$B${r_kr})")
+        ws.cell(row=z, column=3, value=f"=B{z}-D{z}-E{z}")
+
     ws.cell(row=r_sum, column=1, value="Summe Team").font = Font(bold=True)
     for sp in "BCDE":
         ws[f"{sp}{r_sum}"] = f"=SUM({sp}{erste}:{sp}{letzte})"
         ws[f"{sp}{r_sum}"].font = Font(bold=True)
 
     ws.cell(row=r_hon, column=1, value="Honorarkräfte")
-    ws.cell(row=r_hon, column=4, value=p.jahre[jahr].honorarstunden)
+    ws.cell(row=r_hon, column=4, value=j.honorarstunden)
     ws.cell(row=r_af5, column=1, value="Summe AF 5").font = Font(bold=True)
     ws.cell(row=r_af5, column=4, value=f"=D{r_sum}+D{r_hon}")
     ws.cell(row=r_kap, column=1, value="Kapazität").font = Font(bold=True)
@@ -171,21 +260,19 @@ def _auswertung(wb, p: Params, jahr: int):
     # Faktoren (offen dokumentiert, damit nachvollziehbar bleibt, wie verteilt wird)
     ws.cell(row=r_k5, column=1, value="Faktor AF 5 (k5)").font = Font(size=9, italic=True)
     ws.cell(row=r_k5, column=2,
-            value=f"=(Annahmen!$B$9-D{r_hon})/SUM({q}!$F${q_erste}:$F${q_letzte})")
+            value=f"=(Annahmen!$B$9-D{r_hon})/SUM({q}!$H$4:$H${letzte_eingabe})")
     ws.cell(row=r_kapz, column=1, value="Reserve-Soll (Kapazität − Soll)").font = Font(size=9, italic=True)
     ws.cell(row=r_kapz, column=2, value=f"=B{r_kap}-Annahmen!$B$7")
     ws.cell(row=r_fix, column=1, value="davon feste Reserve (Anteil 1)").font = Font(size=9, italic=True)
-    ws.cell(row=r_fix, column=2,
-            value=f'=SUMIF({q}!$G${q_erste}:$G${q_letzte},">=0.999",$B${erste}:$B${letzte})')
+    ws.cell(row=r_fix, column=2, value=f'=SUMIF(F{erste}:F{letzte},">=0.999",B{erste}:B{letzte})')
     ws.cell(row=r_var, column=1, value="übrige Reserve-Ansprüche (Stunden × Anteil)").font = Font(
         size=9, italic=True)
-    ws.cell(row=r_var, column=2,
-            value=f"=SUMPRODUCT(({q}!$G${q_erste}:$G${q_letzte}<0.999)*$B${erste}:$B${letzte}"
-                  f"*{q}!$G${q_erste}:$G${q_letzte})")
+    ws.cell(row=r_var, column=2, value=f"=SUMPRODUCT((F{erste}:F{letzte}<0.999)*B{erste}:B{letzte}"
+                                       f"*F{erste}:F{letzte})")
     ws.cell(row=r_kr, column=1, value="Faktor Reserve (kr)").font = Font(size=9, italic=True)
     ws.cell(row=r_kr, column=2, value=f"=(B{r_kapz}-B{r_fix})/B{r_var}")
 
-    for sp, breite in (("A", 30), ("B", 18), ("C", 14), ("D", 14), ("E", 14)):
+    for sp, breite in (("A", 30), ("B", 18), ("C", 14), ("D", 14), ("E", 14), ("F", 14)):
         ws.column_dimensions[sp].width = breite
 
 
@@ -213,22 +300,38 @@ def _texte(wb, p: Params):
 
 
 def _quellen(wb, p: Params):
+    """Blatt Quellen: Bundesland und Jahreswerte aktualisieren, Fehlendes anhängen."""
     if "Quellen" not in wb.sheetnames:
-        return
-    ws = wb["Quellen"]
+        ws = wb.create_sheet("Quellen")
+        ws.cell(row=1, column=1, value="Quellen und Jahreswerte").font = Font(bold=True, size=11)
+    else:
+        ws = wb["Quellen"]
+    vorhanden = {}
     for r in range(1, ws.max_row + 1):
         label = ws.cell(row=r, column=1).value
-        if not isinstance(label, str):
-            continue
-        for jahr in p.jahre:
-            if label.strip() == f"Workshoptage {jahr}":
-                ws.cell(row=r, column=2, value=p.jahre[jahr].workshoptage)
-        if label.strip() == "Werktage Mo–Fr 2026" or label.strip() == "Werktage Mo-Fr 2026":
-            ws.cell(row=r, column=2, value=p.werktage)
-        if label.strip() == "Feiertage auf Werktagen 2026":
-            ws.cell(row=r, column=2, value=p.feiertage)
-        if label.strip() == "Urlaubsanspruch":
-            ws.cell(row=r, column=2, value=p.urlaub)
+        if isinstance(label, str) and label.strip():
+            vorhanden.setdefault(label.strip(), r)
+
+    zu_setzen: dict[str, object] = {"Bundesland": p.land}
+    for jahr in p.jahr_liste():
+        b = p.basis(jahr)
+        zu_setzen[f"Werktage Mo–Fr {jahr}"] = b["werktage"]
+        zu_setzen[f"Feiertage auf Werktagen {jahr}"] = b["feiertage_werktags"]
+        zu_setzen[f"Feiertage gesamt {jahr}"] = b["feiertage"]
+        zu_setzen[f"Arbeitstage {jahr}"] = b["arbeitstage"]
+        zu_setzen[f"Workshoptage {jahr}"] = p.jahre[jahr].workshoptage
+    zu_setzen["Urlaubsanspruch"] = p.urlaub
+
+    naechste = ws.max_row + 1
+    for label, wert in zu_setzen.items():
+        r = vorhanden.get(label)
+        if r is None:
+            r = naechste
+            naechste += 1
+            ws.cell(row=r, column=1, value=label).font = Font(size=10)
+        ws.cell(row=r, column=2, value=wert)
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 16
 
 
 def schreiben(data: bytes, p: Params) -> bytes:
@@ -242,8 +345,9 @@ def schreiben(data: bytes, p: Params) -> bytes:
             ws.cell(row=1, column=1, value=f"Eingabe {jahr} (gelb = änderbar)")
         if f"Auswertung {jahr}" not in wb.sheetnames:
             wb.create_sheet(f"Auswertung {jahr}")
-        _eingabe(wb, p, jahr)
-        _auswertung(wb, p, jahr)
+        basis_blatt = _basisdaten(wb, p, jahr)
+        letzte = _eingabe(wb, p, jahr, basis_blatt)
+        _auswertung(wb, p, jahr, letzte)
     _texte(wb, p)
     _quellen(wb, p)
     wb.properties.title = f"{p.titel} — Steuerungsdatei"

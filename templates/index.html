@@ -39,9 +39,13 @@
   .fields.one{grid-template-columns:1fr}
   .fld{display:flex;flex-direction:column;gap:3px}
   .fld label{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.02em}
-  .fld input,.fld textarea{width:100%;padding:6px 8px;border:1px solid #dbe3e6;border-radius:7px;
+  .fld input,.fld textarea,.fld select{width:100%;padding:6px 8px;border:1px solid #dbe3e6;border-radius:7px;
        font:inherit;font-size:13.5px;background:var(--input);font-variant-numeric:tabular-nums}
-  .fld input:focus,.fld textarea:focus{outline:2px solid #b9d3dd;border-color:var(--petrol)}
+  .fld select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--petrol) 50%),
+       linear-gradient(135deg,var(--petrol) 50%,transparent 50%);
+       background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+       background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:26px}
+  .fld input:focus,.fld textarea:focus,.fld select:focus{outline:2px solid #b9d3dd;border-color:var(--petrol)}
   .fld .hint{font-size:10.5px;color:var(--muted)}
   .check{display:flex;gap:7px;align-items:flex-start;font-size:12.5px;color:var(--muted);
          margin-top:2px;line-height:1.35}
@@ -65,9 +69,10 @@
   table.eingabe td input:focus{outline:2px solid #b9d3dd;border-color:var(--petrol)}
   table.eingabe td.w-name input{font-weight:700}
   table.eingabe td.w-xs{width:52px} table.eingabe td.w-s{width:64px} table.eingabe td.w-m{width:74px}
-  table.eingabe td.del{width:28px;text-align:center}
-  .del button{border:0;background:transparent;color:#b3c0c6;font-size:15px;cursor:pointer;line-height:1;padding:2px 4px}
-  .del button:hover{color:#c0392b}
+  table.eingabe td.del{width:54px;text-align:center;white-space:nowrap}
+  .del button{border:0;background:transparent;color:#b3c0c6;font-size:15px;cursor:pointer;line-height:1;padding:2px 3px}
+  .del button:hover{color:var(--petrol)}
+  .del button:last-child:hover{color:#c0392b}
   .tablescroll{overflow-x:auto}
   .yeartop{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between;margin-bottom:8px}
   .yeartop .tag{font-size:11px;font-weight:800;letter-spacing:.04em;color:#fff;background:var(--amber);
@@ -112,23 +117,38 @@
     <!-- linke Spalte: Annahmen, Vertrag, Texte, Ausgabe -->
     <div>
       <section class="card">
-        <h2>Annahmen <em>— Arbeitstage und Jahresstunden</em></h2>
-        <div class="fields">
-          <div class="fld"><label for="w">Werktage (Mo–Fr)</label>
-            <input id="w" name="w" value="{{ f.w }}" inputmode="decimal"></div>
-          <div class="fld"><label for="f">Feiertage (werktags)</label>
-            <input id="f" name="f" value="{{ f.f }}" inputmode="decimal"></div>
-          <div class="fld"><label for="u">Urlaubstage</label>
-            <input id="u" name="u" value="{{ f.u }}" inputmode="decimal"></div>
-          <div class="fld"><label for="k">Krankheitstage</label>
-            <input id="k" name="k" value="{{ f.k }}" inputmode="decimal"></div>
-          <div class="fld"><label for="at">Arbeitstage</label>
-            <input id="at" name="at" value="{{ f.at }}" inputmode="decimal"></div>
-          <div class="fld"><label>Wochen</label>
-            <input value="{{ m.wochen|g }}" disabled></div>
+        <h2>Basisdaten <em>— aus dem Kalender, je Bundesland und Jahr</em></h2>
+        <div class="fields one">
+          <div class="fld"><label for="land">Bundesland</label>
+            <select id="land" name="land">
+              {% for l in laender %}
+              <option value="{{ l }}" {{ 'selected' if l == f.land }}>{{ l }}</option>
+              {% endfor %}
+            </select></div>
         </div>
-        <label class="check"><input type="checkbox" name="at_fix" value="1" {% if f.at_fix %}checked{% endif %}>
-          <span>Arbeitstage von Hand setzen (sonst aus Werktage − Feiertage − Urlaub − Krankheit)</span></label>
+        <div class="fields" style="margin-top:8px">
+          <div class="fld"><label for="u">Urlaubsanspruch (Jahr)</label>
+            <input id="u" name="u" value="{{ f.u }}" inputmode="decimal"></div>
+          <div class="fld"><label for="k">Krankheitstage (Jahr)</label>
+            <input id="k" name="k" value="{{ f.k }}" inputmode="decimal"></div>
+        </div>
+        <p class="hint" style="margin:8px 0 0;font-size:11.5px;color:var(--muted)">
+          Leere Urlaubs-/Krankheitsfelder in einem Zeitraum erben anteilig diese Jahreswerte.</p>
+        <table class="eingabe" style="margin-top:10px">
+          <thead><tr><th>Jahr</th><th class="num">Werktage</th><th class="num">Feiertage</th>
+            <th class="num">Arbeitstage</th></tr></thead>
+          <tbody>
+          {% for j in jahre %}{% set s = (j|string)[2:] %}
+            <tr><td style="font-weight:700">{{ j }}</td>
+              <td class="num" style="padding:4px">{{ f['bd' ~ s ~ '_w'] }}</td>
+              <td class="num" style="padding:4px">{{ f['bd' ~ s ~ '_f'] }}</td>
+              <td class="num" style="padding:4px;font-weight:700">{{ f['bd' ~ s ~ '_at'] }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        <p class="hint" style="margin:6px 0 0;font-size:11px;color:var(--muted)">
+          Werktage Mo–Fr minus Feiertage des Landes (bewegliche Feste gerechnet, Einmal-Feiertage
+          in der Liste). Urlaub und Krankheit sind hier nicht abgezogen.</p>
       </section>
 
       <section class="card">
@@ -197,31 +217,36 @@
         <div class="tablescroll">
           <table class="eingabe">
             <thead><tr>
-              <th>Mitarbeiter*in</th><th>Funktion</th><th class="num">Wochen&shy;stunden</th>
-              <th class="num">von</th><th class="num">bis</th><th class="num">AF 5 h</th>
-              <th class="num">Reserve</th><th></th>
+              <th>Mitarbeiter*in</th><th>Funktion</th><th class="num">von</th><th class="num">bis</th>
+              <th class="num">Wochen&shy;stunden</th><th class="num">Urlaub</th><th class="num">Krank</th>
+              <th class="num">AF 5 h</th><th class="num">Reserve</th><th></th>
             </tr></thead>
             <tbody id="rows{{ j }}">
-            {% for q in jj.personen %}
-            {% set b = 'p' ~ j ~ '_' ~ loop.index0 %}
+            {% set ns = namespace(i=0) %}
+            {% for q in jj.personen %}{% for a in q.abschnitte %}
+            {% set b = 'p' ~ j ~ '_' ~ ns.i %}
               <tr>
                 <td class="w-name"><input name="{{ b }}_name" value="{{ q.name }}"></td>
                 <td><input name="{{ b }}_rolle" value="{{ q.rolle }}"></td>
-                <td class="w-xs"><input name="{{ b }}_ws" value="{{ q.wochenstunden|g }}" inputmode="decimal"></td>
-                <td class="w-s"><input name="{{ b }}_von" value="{{ q.von }}" inputmode="numeric"></td>
-                <td class="w-s"><input name="{{ b }}_bis" value="{{ q.bis }}" inputmode="numeric"></td>
-                <td class="w-s"><input name="{{ b }}_af5" value="{{ q.af5|g }}" inputmode="decimal"></td>
-                <td class="w-s"><input name="{{ b }}_res" value="{{ q.res|g }}" inputmode="decimal"></td>
-                <td class="del"><button type="button" title="Zeile entfernen" onclick="delRow(this)">×</button></td>
+                <td class="w-s"><input name="{{ b }}_von" value="{{ a.von }}" inputmode="numeric"></td>
+                <td class="w-s"><input name="{{ b }}_bis" value="{{ a.bis }}" inputmode="numeric"></td>
+                <td class="w-xs"><input name="{{ b }}_ws" value="{{ a.wochenstunden|g1 }}" inputmode="decimal"></td>
+                <td class="w-xs"><input name="{{ b }}_u" value="{{ '' if a.urlaub is none else a.urlaub|g1 }}" inputmode="decimal" placeholder="auto"></td>
+                <td class="w-xs"><input name="{{ b }}_k" value="{{ '' if a.krank is none else a.krank|g1 }}" inputmode="decimal" placeholder="auto"></td>
+                <td class="w-s"><input name="{{ b }}_af5" value="{{ a.af5|g1 }}" inputmode="decimal"></td>
+                <td class="w-s"><input name="{{ b }}_res" value="{{ a.res|g3 }}" inputmode="decimal"></td>
+                <td class="del"><button type="button" title="Zeitraum für diese Person hinzufügen" onclick="addPeriode(this)">＋</button><button type="button" title="Zeile entfernen" onclick="delRow(this)">×</button></td>
               </tr>
-            {% endfor %}
+            {% set ns.i = ns.i + 1 %}
+            {% endfor %}{% endfor %}
             </tbody>
           </table>
         </div>
-        <input type="hidden" id="n{{ s }}" name="n{{ s }}" value="{{ jj.personen|length }}">
+        <input type="hidden" id="n{{ s }}" name="n{{ s }}" value="{{ jj.personen|map(attribute='abschnitte')|map('length')|sum }}">
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-          <button class="btn ghost small" type="button" onclick="addRow({{ j }})">+ Zeile</button>
+          <button class="btn ghost small" type="button" onclick="addRow({{ j }})">+ Zeitraum</button>
           <span class="hint" style="font-size:11.5px;color:var(--muted);align-self:center">
+            Gleicher Name in Folgezeilen = gleiche Person (z. B. ab Juli mehr Stunden) ·
             Reserve 1 = ganze Stelle nur Leitung/Verwaltung · leere Namen fallen raus</span>
         </div>
         <div id="sum{{ j }}">{{ summe(m.jahre[j]) }}</div>
@@ -282,9 +307,11 @@ function rowHtml(j, i, v) {
   const b = 'p' + j + '_' + i;
   return `<td class="w-name"><input name="${b}_name" value="${v.name}"></td>
     <td><input name="${b}_rolle" value="${v.rolle}"></td>
-    <td class="w-xs"><input name="${b}_ws" value="${v.ws}" inputmode="decimal"></td>
     <td class="w-s"><input name="${b}_von" value="${v.von}" inputmode="numeric"></td>
     <td class="w-s"><input name="${b}_bis" value="${v.bis}" inputmode="numeric"></td>
+    <td class="w-xs"><input name="${b}_ws" value="${v.ws}" inputmode="decimal"></td>
+    <td class="w-xs"><input name="${b}_u" value="${v.u}" inputmode="decimal" placeholder="auto"></td>
+    <td class="w-xs"><input name="${b}_k" value="${v.k}" inputmode="decimal" placeholder="auto"></td>
     <td class="w-s"><input name="${b}_af5" value="${v.af5}" inputmode="decimal"></td>
     <td class="w-s"><input name="${b}_res" value="${v.res}" inputmode="decimal"></td>
     <td class="del"><button type="button" title="Zeile entfernen" onclick="delRow(this)">×</button></td>`;
@@ -293,10 +320,47 @@ function addRow(j) {
   const tb = document.getElementById('rows' + j);
   if (tb.children.length >= {{ max_zeilen }}) return;
   const tr = document.createElement('tr');
-  tr.innerHTML = rowHtml(j, tb.children.length, {name:'', rolle:'', ws:'', von:'1', bis:'12', af5:'0', res:'0,08'});
+  tr.innerHTML = rowHtml(j, tb.children.length, {name:'', rolle:'', von:'1', bis:'12',
+                                                 ws:'', u:'', k:'', af5:'0', res:'0,08'});
   tb.appendChild(tr);
   syncCounts();
   tr.querySelector('input').focus();
+  change();
+}
+function addPeriode(btn) {
+  // Neuer Zeitraum für dieselbe Person: Name/Funktion/AF 5/Reserve übernehmen,
+  // Zeitraum ab dem Folgemonat, Urlaub und Krankheit leer (= anteilig).
+  const tr = btn.closest('tr');
+  const tb = tr.closest('tbody');
+  const j = tb.id.replace('rows', '');
+  const wert = (suffix) => tr.querySelector('[name$="_' + suffix + '"]').value;
+  if (tb.children.length >= {{ max_zeilen }}) return;
+  const neu = tr.cloneNode(true);
+  tr.after(neu);
+  renumber(Number(j));
+  const i = [...tb.children].indexOf(neu);
+  const b = 'p' + j + '_' + i;
+  const setze = (suffix, val) => { const el = neu.querySelector('[name="' + b + '_' + suffix + '"]'); if (el) el.value = val; };
+  const vonAlt = parseInt(wert('von'), 10) || 1;
+  const bisAlt = parseInt(wert('bis'), 10) || 12;
+  if (bisAlt < 12) {
+    // Zeitraum endet vor dem Jahresende: neuer Zeitraum ab dem Folgemonat
+    setze('von', String(bisAlt + 1));
+    setze('bis', '12');
+  } else {
+    // Zeitraum läuft bis Dezember: in der Mitte teilen (häufigster Fall „ab Juli mehr Stunden")
+    const mitte = Math.ceil((vonAlt + bisAlt) / 2);
+    setze('von', String(mitte));
+    setze('bis', '12');
+    const alt = tr.querySelector('[name$="_bis"]');
+    if (alt) alt.value = String(Math.max(vonAlt, mitte - 1));
+  }
+  setze('u', '');
+  setze('k', '');
+  setze('ws', wert('ws'));
+  setze('af5', '0');        // AF-5-Anteil bleibt beim ersten Zeitraum der Person
+  setze('res', wert('res'));
+  syncCounts();
   change();
 }
 function delRow(btn) {

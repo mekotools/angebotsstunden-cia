@@ -3,6 +3,11 @@
 Aufruf:  STEUERDATEI=/pfad/zur/Steuerungsdatei.xlsx python -m pytest -q tests
 Die Steuerungsdatei ist absichtlich **nicht** im Repository (echte Personendaten).
 Ohne sie werden die dateibasierten Prüfungen übersprungen.
+
+Die Ankerzahlen haben sich mit den Basisdaten je Jahr bewusst verschoben: statt
+der von Hand gesetzten 261 Werktage / 8 Feiertage rechnet das Modell jetzt
+261 − 7 = 254 Arbeitstage (Berlin 2026, Blatt Basisdaten) und Arbeitstage je
+Zeitraum monatsgenau statt linear über das Jahr.
 """
 from __future__ import annotations
 
@@ -17,6 +22,7 @@ import pytest
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HIER))
 
+import basisdaten  # noqa: E402
 import core  # noqa: E402
 import params as P  # noqa: E402
 import report  # noqa: E402
@@ -60,17 +66,31 @@ def test_jede_person_ist_vollstaendig_verteilt(model):
     for m in model["jahre"].values():
         for d in m["personen"]:
             assert d["stunden"] == pytest.approx(d["af1"] + d["af5"] + d["reserve"], abs=0.01)
+            for x in d["abschnitte"]:
+                assert x["stunden"] == pytest.approx(x["af1"] + x["af5"] + x["reserve"], abs=0.01)
+
+
+def test_basisdaten_je_jahr_kommen_aus_dem_kalender(params, model):
+    """Kein Handwert mehr: Werktage/Feiertage/Arbeitstage je Jahr aus basisdaten."""
+    assert params.land == "Berlin"
+    for jahr, m in model["jahre"].items():
+        b = basisdaten.jahr(params.land, jahr)
+        assert m["werktage"] == b["werktage"] and m["arbeitstage"] == b["arbeitstage"]
+        assert m["feiertage_werktags"] == b["feiertage_werktags"]
+        assert m["arbeitstage"] == m["werktage"] - m["feiertage_werktags"]
+    assert model["jahre"][2026]["arbeitstage"] == 254
+    assert model["jahre"][2027]["arbeitstage"] == 255
 
 
 def test_zahlen_des_freigegebenen_entwurfs(model):
-    """Die von Hand erzeugte A4-Seite (Entwurf 23.11.2026) als Referenz."""
+    """Referenz der abgenommenen A4-Seite, nach der Basisdaten-Korrektur."""
     m = model["jahre"][2026]
     soll = {
-        "Julia Hoffmann": (350, 159, 0, 191),
-        "Johannes Wiener": (1314, 1180, 29, 104),
-        "Till Steinmetz": (1402, 1206, 84, 111),
-        "Felix Ramm": (701, 527, 0, 174),
-        "Sandra Rahn": (153, 0, 0, 153),
+        "Julia Hoffmann": (348.8, 150.8, 0, 198.0),
+        "Johannes Wiener": (1320, 1181.5, 29.5, 109.0),
+        "Till Steinmetz": (1408, 1207.5, 84.3, 116.2),
+        "Felix Ramm": (704, 522.4, 0, 181.6),
+        "Sandra Rahn": (154, 0, 0, 154),
     }
     ist = {d["name"]: (d["stunden"], d["af1"], d["af5"], d["reserve"]) for d in m["personen"]}
     for name, (std, af1, af5, res) in soll.items():
@@ -78,21 +98,42 @@ def test_zahlen_des_freigegebenen_entwurfs(model):
         assert ist[name][1] == pytest.approx(af1, abs=0.6), name
         assert ist[name][2] == pytest.approx(af5, abs=0.6), name
         assert ist[name][3] == pytest.approx(res, abs=0.6), name
-    assert round(m["kapazitaet"]) == 7915
-    assert model["jahre"][2027]["kapazitaet"] == pytest.approx(7967, abs=0.6)
+    assert round(m["kapazitaet"]) == 7950
+    assert model["jahre"][2027]["kapazitaet"] == pytest.approx(8029, abs=0.6)
 
 
-def test_arbeitstage_von_hand(params):
-    p = P.from_form({
-        "w": "261", "f": "8", "u": "24", "k": "10", "soll": "6828", "af1": "5000", "af5": "1828",
-        "at_fix": "1", "at": "200",
-        "n26": "1", "p2026_0_name": "Test", "p2026_0_ws": "40", "p2026_0_von": "1",
-        "p2026_0_bis": "12", "p2026_0_af5": "0", "p2026_0_res": "0",
-        "h26": "1630", "n27": "0", "h27": "0",
-    })
-    assert p.arbeitstage == 200
+def test_zeitraeume_teilen_die_stunden(params):
+    """Dieselbe Person mit zwei Zeiträumen: Stunden werden monatsgenau summiert."""
+    p = P.from_xlsx(open(STEUERDATEI, "rb").read())
+    j = p.jahre[2026]
+    person = next(q for q in j.personen if len(q.abschnitte) == 1 and q.abschnitte[0].wochenstunden)
+    af5_gesamt = person.af5
+    person.abschnitte = [
+        P.Abschnitt(von=1, bis=6, wochenstunden=20, af5=af5_gesamt / 2, res=0.1),
+        P.Abschnitt(von=7, bis=12, wochenstunden=40, af5=af5_gesamt / 2, res=0.1),
+    ]
     m = core.compute(p)["jahre"][2026]
-    assert m["personen"][0]["stunden"] == pytest.approx(40 / 5 * 200)
+    d = next(x for x in m["personen"] if x["name"] == person.name)
+    at1 = basisdaten.arbeitstage(p.land, 2026, 1, 6)
+    at2 = basisdaten.arbeitstage(p.land, 2026, 7, 12)
+    assert len(d["abschnitte"]) == 2
+    assert d["abschnitte"][0]["stunden"] == pytest.approx(20 / 5 * (at1 - 12 - 5))
+    assert d["abschnitte"][1]["stunden"] == pytest.approx(40 / 5 * (at2 - 12 - 5))
+    assert d["stunden"] == pytest.approx(d["abschnitte"][0]["stunden"] + d["abschnitte"][1]["stunden"])
+    assert d["wochenstunden_text"] == "20 → 40"
+    # Vertragssummen stimmen weiterhin
+    assert m["summen"]["af5"] == pytest.approx(p.soll_af5, abs=0.5)
+    assert m["summen"]["reserve"] == pytest.approx(m["kapazitaet"] - p.soll, abs=0.5)
+
+
+def test_zeitraum_erbt_urlaub_und_krankheit_anteilig(params):
+    """Leere Felder = anteilig aus dem Jahresanspruch."""
+    a = P.Abschnitt(von=7, bis=12, wochenstunden=30)
+    p = P.modify(params, jahre={2026: P.Jahr(jahr=2026, personen=[
+        P.Person(name="Halbjahr", abschnitte=[a])])})
+    m = core.compute(p)["jahre"][2026]
+    assert m["personen"][0]["urlaub"] == pytest.approx(12)
+    assert m["personen"][0]["krank"] == pytest.approx(5)
 
 
 def test_formular_versteht_komma():
@@ -109,23 +150,41 @@ def test_rueckschreiben_bleibt_lesbar(rohdaten, params):
     neu = xlsx_write.schreiben(rohdaten, params)
     p2 = P.from_xlsx(neu)
     assert p2.soll == params.soll and p2.soll_af1 == params.soll_af1
-    assert p2.arbeitstage == pytest.approx(params.arbeitstage)
+    assert p2.land == params.land and p2.urlaub == params.urlaub
     for jahr in params.jahre:
+        assert p2.arbeitstage(jahr) == pytest.approx(params.arbeitstage(jahr))
         assert len(p2.jahre[jahr].personen) == len(params.jahre[jahr].personen)
         assert p2.jahre[jahr].honorarstunden == params.jahre[jahr].honorarstunden
-    assert "Texte" in __import__("openpyxl").load_workbook(BytesIO(neu)).sheetnames
+    blaetter = __import__("openpyxl").load_workbook(BytesIO(neu)).sheetnames
+    for muss in ("Texte", "Basisdaten 2026", "Basisdaten 2027", "Eingabe 2026", "Auswertung 2026"):
+        assert muss in blaetter, muss
 
 
-def test_neue_zeile_wandert_ins_excel(rohdaten, params):
+def test_neue_zeile_wandert_ins_excel(rohdaten):
     p = P.from_xlsx(rohdaten)
-    p.jahre[2026].personen.append(P.Person(name="Neue Kraft", rolle="Test", wochenstunden=10,
-                                           von=3, bis=12, af5=40, res=0.1))
+    p.jahre[2026].personen.append(P.Person(
+        name="Neue Kraft", rolle="Test",
+        abschnitte=[P.Abschnitt(von=3, bis=12, wochenstunden=10, af5=40, res=0.1)]))
     neu = xlsx_write.schreiben(rohdaten, p)
     p2 = P.from_xlsx(neu)
     assert [q.name for q in p2.jahre[2026].personen][-1] == "Neue Kraft"
-    # und die Rechnung nimmt die Zeile mit
     m = core.compute(p2)["jahre"][2026]
     assert any(d["name"] == "Neue Kraft" for d in m["personen"])
+
+
+def test_zwei_zeitraeume_ueberleben_das_excel(rohdaten):
+    """Die Zeitraum-Aufteilung steht nach dem Sichern wieder in der Datei."""
+    p = P.from_xlsx(rohdaten)
+    q = p.jahre[2026].personen[0]
+    q.abschnitte = [P.Abschnitt(von=1, bis=6, wochenstunden=20, af5=20, res=0.1),
+                    P.Abschnitt(von=7, bis=12, wochenstunden=35, af5=20, res=0.1)]
+    neu = xlsx_write.schreiben(rohdaten, p)
+    p2 = P.from_xlsx(neu)
+    q2 = p2.jahre[2026].personen[0]
+    assert len(q2.abschnitte) == 2
+    assert (q2.abschnitte[0].von, q2.abschnitte[0].bis) == (1, 6)
+    assert (q2.abschnitte[1].von, q2.abschnitte[1].bis) == (7, 12)
+    assert q2.abschnitte[0].wochenstunden == 20 and q2.abschnitte[1].wochenstunden == 35
 
 
 def test_excel_formeln_rechnen_wie_die_app(rohdaten, params):
@@ -194,20 +253,33 @@ def test_pdf_einzeljahr(params, model):
     assert "2027" in pdf[0].get_text()
 
 
+def test_pdf_zeigt_basisdaten_und_zeitraeume(params):
+    p = P.from_xlsx(open(STEUERDATEI, "rb").read())
+    q = p.jahre[2026].personen[0]
+    q.abschnitte = [P.Abschnitt(von=1, bis=6, wochenstunden=20, af5=20, res=0.1),
+                    P.Abschnitt(von=7, bis=12, wochenstunden=35, af5=20, res=0.1)]
+    m = core.compute(p)
+    text = pymupdf().open(stream=report.build(m, p, [2026]))[0].get_text().replace("\n", " ")
+    assert "254 Arbeitstage" in text and "261 Werktage" in text
+    assert "20 → 35" in text and "01.–06." in text
+
+
 def test_pdf_zeigt_justierte_zahl(params, model):
-    """Eine geänderte Zahl muss im PDF stehen — Beweis, dass nichts fest verdrahtet ist."""
+    """Eine geänderte Annahme muss im PDF ankommen — Beweis, dass nichts fest verdrahtet ist."""
     p2 = P.from_form({**params.to_form(), "k": "15"})
     m2 = core.compute(p2)
+    kapazitaet = f"{round(m2['jahre'][2026]['kapazitaet']):,}".replace(",", ".")
+    assert kapazitaet != f"{round(model['jahre'][2026]['kapazitaet']):,}".replace(",", ".")
     text = pymupdf().open(stream=report.build(m2, p2, [2026]))[0].get_text()
-    assert "Arbeitstage 214" in text.replace("\n", " ")  # 261 − 8 − 24 − 15
-    assert f"{round(m2['jahre'][2026]['kapazitaet']):,}".replace(",", ".") in text
+    assert kapazitaet in text
 
 
 def test_pdf_bleibt_auf_einer_seite(params):
     p = P.from_xlsx(open(STEUERDATEI, "rb").read())
     for _ in range(6):
-        p.jahre[2026].personen.append(P.Person(name="Zusatzkraft", rolle="Test",
-                                               wochenstunden=8, von=1, bis=12, af5=20, res=0.1))
+        p.jahre[2026].personen.append(P.Person(
+            name="Zusatzkraft", rolle="Test",
+            abschnitte=[P.Abschnitt(von=1, bis=12, wochenstunden=8, af5=20, res=0.1)]))
     m = core.compute(p)
     pdf = pymupdf().open(stream=report.build(m, p, [2026]))
     assert pdf.page_count == 1
@@ -227,14 +299,18 @@ def test_warnung_bei_schiefem_soll(params, model):
 def test_warnung_bei_zu_vielen_zeilen(params):
     p = P.from_xlsx(open(STEUERDATEI, "rb").read())
     for _ in range(5):
-        p.jahre[2026].personen.append(P.Person(name="X", wochenstunden=4, res=0.1))
+        p.jahre[2026].personen.append(P.Person(
+            name=f"X{len(p.jahre[2026].personen)}",
+            abschnitte=[P.Abschnitt(von=1, bis=12, wochenstunden=4, res=0.1)]))
     assert any("A4-Seite" in w for w in core.warnungen(p, core.compute(p)))
 
 
 def test_overlay_ueberschreibt_nur_das_uebergebene(rohdaten):
     p = P.from_xlsx(rohdaten)
     q = P.overlay(p, {"k": "15"})
-    assert q.krank == 15 and q.arbeitstage == 214
+    assert q.krank == 15
+    # Arbeitstage kommen aus dem Kalender, nicht aus Urlaub/Krankheit
+    assert q.arbeitstage(2026) == 254
     assert q.soll == p.soll and q.satz == p.satz
     assert [x.name for x in q.jahre[2026].personen] == [x.name for x in p.jahre[2026].personen]
     # Zeilenzahl im Formular ersetzt die Personenliste

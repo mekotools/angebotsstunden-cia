@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
+import basisdaten
 import core
 import params as P
 import report
@@ -28,6 +29,8 @@ app = FastAPI(title="Angebotsstunden CIA Spandau")
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 templates.env.filters["de"] = lambda n: f"{round(float(n)):,}".replace(",", ".")
 templates.env.filters["g"] = lambda n: P.fmt(n)
+templates.env.filters["g1"] = lambda n: P.fmt(n, 1)
+templates.env.filters["g3"] = lambda n: P.fmt(n, 3)
 
 
 def _norm_url(u: str) -> str:
@@ -142,6 +145,7 @@ def index(request: Request, refresh: int = 0):
         "query": p.to_query(), "stand": p.stand, "quelle": p.quelle,
         "seiten": seiten,
         "max_zeilen": P.MAX_ZEILEN,
+        "laender": basisdaten.BUNDESLAENDER,
     })
 
 

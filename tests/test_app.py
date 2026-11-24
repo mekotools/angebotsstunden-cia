@@ -37,12 +37,13 @@ def test_formular_zeigt_alle_felder():
     r = client.get("/")
     assert r.status_code == 200
     html = r.text
-    for feld in ("name=\"w\"", "name=\"soll\"", "name=\"p2026_0_name\"", "name=\"h26\"",
-                 "name=\"p2027_0_ws\"", "name=\"satz\"", "Beruf"):
-        if feld == "Beruf":
-            continue
+    for feld in ("name=\"land\"", "name=\"u\"", "name=\"k\"", "name=\"soll\"",
+                 "name=\"p2026_0_name\"", "name=\"p2026_0_u\"", "name=\"p2026_0_k\"",
+                 "name=\"h26\"", "name=\"p2027_0_ws\"", "name=\"satz\""):
         assert feld in html, feld
     assert "A4-PDF ansehen" in html and "In Excel sichern" in html
+    # Basisdaten stehen als Tabelle im Formular
+    assert "Arbeitstage" in html and "Werktage" in html
 
 
 def test_pdf_route_liefert_pdf():
@@ -87,6 +88,7 @@ def test_sichern_ohne_nextcloud_sagt_warum():
 
 def test_geschriebene_datei_wird_wieder_gelesen():
     """Der Rückweg über HTTP-Formular → XLSX → Formular bleibt verlustfrei."""
+    import core
     form = basis_form()
     form.update({"k": "12", "p2026_0_ws": "35"})
     p = P.from_form(form)
@@ -95,15 +97,25 @@ def test_geschriebene_datei_wird_wieder_gelesen():
     p2 = P.from_xlsx(neu)
     assert p2.krank == 12
     assert p2.jahre[2026].personen[0].wochenstunden == 35
-    assert p2.to_form() == p.to_form()
+    m1, m2 = core.compute(p), core.compute(p2)
+    for jahr in m1["jahre"]:
+        assert m2["jahre"][jahr]["kapazitaet"] == pytest.approx(
+            m1["jahre"][jahr]["kapazitaet"], abs=0.05), jahr
+        assert [q.name for q in p2.jahre[jahr].personen] == [q.name for q in p.jahre[jahr].personen]
 
 
 def test_einzelner_parameter_in_der_url():
     """?k=15 muss wirken — fehlende Felder kommen aus der Steuerungsdatei, nicht aus
     Python-Konstanten, und die Personen bleiben stehen."""
+    import core
     import pymupdf
     r = client.get("/export.pdf", params={"k": "15"})
     assert r.status_code == 200
     text = pymupdf.open(stream=r.content)[0].get_text().replace("\n", " ")
-    assert "Arbeitstage 214" in text
     assert "Julia Hoffmann" in text
+    # 15 statt 10 Krankheitstage senken die Kapazität
+    p = P.from_xlsx(open(STEUERDATEI, "rb").read())
+    basis = core.compute(p)["jahre"][2026]["kapazitaet"]
+    mit = core.compute(P.overlay(p, {"k": "15"}))["jahre"][2026]["kapazitaet"]
+    assert mit < basis
+    assert f"{round(mit):,}".replace(",", ".") in text

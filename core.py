@@ -1,56 +1,85 @@
 """Rechnet das Stundengerüst aus den Parametern. Keine Seiteneffekte.
 
-Der Rechenweg ist derselbe wie in der Steuerungsdatei (Blätter Annahmen,
-Eingabe, Auswertung) und trifft die Vertragssummen exakt:
+Der Rechenweg ist derselbe wie in der Steuerungsdatei (Blätter Basisdaten,
+Annahmen, Eingabe, Auswertung) und trifft die Vertragssummen exakt:
 
-1. Stunden im Jahr  = Wochenstunden / 5 × Arbeitstage × Anteil am Jahr
-2. AF 5 je Person   = AF-5-Anteil × Faktor k5, mit
+1. Arbeitstage eines Abschnitts = Werktage − Feiertage des Zeitraums (aus
+   ``basisdaten``, je Bundesland und Jahr) — abzüglich Urlaub und Krankheit
+2. Stunden im Abschnitt = Wochenstunden / 5 × Arbeitstage des Abschnitts
+   Die Stunden einer Person sind die Summe ihrer Abschnitte, damit eine
+   Stundenänderung mitten im Jahr tagesgenau (monatsgenau) wirkt.
+3. AF 5 je Person   = AF-5-Anteil × Faktor k5, mit
                       k5 = (Soll AF 5 − Honorarstunden) / Summe der AF-5-Anteile
-3. Reserve je Person= Stunden × Reserve-Anteil × Faktor kr (volle Reserve bei Anteil 1)
+4. Reserve je Person= Stunden × Reserve-Anteil × Faktor kr (volle Reserve bei Anteil 1)
                       kr = (Kapazität − Vertragssoll − feste Reserve) / Summe der
                            übrigen Reserve-Ansprüche
-4. AF 1             = Stunden − AF 5 − Reserve
+5. AF 1             = Stunden − AF 5 − Reserve
 
 Daraus folgt: Summe AF 5 = Soll AF 5, Summe AF 1 = Soll AF 1, Summe Reserve =
-Kapazität − Vertragssoll. Diese drei Gleichungen prüft tests/test_calc.py.
+Kapazität − Vertragssoll. Diese drei Gleichungen prüft tests/test_kette.py.
 """
 from __future__ import annotations
 
-from params import Params, Person
+import basisdaten
+from params import Params
 
 
-def _jahr(p: Params, jahr: int, at: float) -> dict:
+def _abschnitt(p: Params, jahr: int, a) -> dict:
+    at = basisdaten.arbeitstage(p.land, jahr, a.von, a.bis)
+    u = a.urlaub if a.urlaub is not None else p.urlaub * a.anteil
+    k = a.krank if a.krank is not None else p.krank * a.anteil
+    netto = max(0.0, at - u - k)
+    return dict(
+        von=a.von, bis=a.bis, zeitraum=a.zeitraum(), monate=a.monate,
+        wochenstunden=a.wochenstunden, arbeitstage=at, urlaub=u, krank=k,
+        netto=netto, stunden=a.wochenstunden / 5 * netto,
+        af5_anteil=a.af5, res_anteil=a.res, fix=a.fix,
+    )
+
+
+def _jahr(p: Params, jahr: int) -> dict:
     j = p.jahre[jahr]
+    b = p.basis(jahr)
     personen = []
     for q in j.personen:
-        anteil = q.anteil()
-        stunden = q.wochenstunden / 5 * at * anteil
+        abschnitte = [_abschnitt(p, jahr, a) for a in q.abschnitte]
+        stunden = sum(x["stunden"] for x in abschnitte)
         personen.append(dict(
-            name=q.name, rolle=q.rolle, wochenstunden=q.wochenstunden,
-            von=q.von, bis=q.bis, zeitraum=q.zeitraum(jahr), anteil=anteil,
-            stunden=stunden, af5_anteil=q.af5, res_anteil=q.res, fix=q.fix,
+            name=q.name, rolle=q.rolle, abschnitte=abschnitte,
+            wochenstunden=abschnitte[0]["wochenstunden"] if abschnitte else 0.0,
+            wochenstunden_text=q.ws_text,
+            zeitraum=abschnitte[0]["zeitraum"] if len(abschnitte) == 1 else q.zeitraum_text,
+            zeitraum_text=q.zeitraum_text,
+            stunden=stunden,
+            af5_anteil=sum(x["af5_anteil"] for x in abschnitte),
+            fix=any(x["fix"] for x in abschnitte),
+            fix_reserve=sum(x["stunden"] for x in abschnitte if x["fix"]),
+            variabel=sum(x["stunden"] * x["res_anteil"] for x in abschnitte if not x["fix"]),
+            urlaub=sum(x["urlaub"] for x in abschnitte),
+            krank=sum(x["krank"] for x in abschnitte),
+            arbeitstage=sum(x["arbeitstage"] for x in abschnitte),
         ))
 
     # AF 5: Honorarkräfte decken zuerst, der Rest wird nach AF-5-Anteil verteilt
     af5_team = p.soll_af5 - j.honorarstunden
     roh = sum(d["af5_anteil"] for d in personen)
     k5 = af5_team / roh if roh else 0.0
-    for d in personen:
-        d["af5"] = d["af5_anteil"] * k5
-        d["k5"] = k5
 
     kapazitaet = sum(d["stunden"] for d in personen) + j.honorarstunden
     reserve_soll = kapazitaet - p.soll
-    fix_reserve = sum(d["stunden"] for d in personen if d["fix"])
-    variabel = sum(d["stunden"] * d["res_anteil"] for d in personen if not d["fix"])
+    fix_reserve = sum(d["fix_reserve"] for d in personen)
+    variabel = sum(d["variabel"] for d in personen)
     kr = (reserve_soll - fix_reserve) / variabel if variabel else 0.0
+
     for d in personen:
-        if d["fix"]:
-            d["reserve"] = d["stunden"]
-        else:
-            d["reserve"] = d["stunden"] * d["res_anteil"] * kr
-        d["af1"] = d["stunden"] - d["af5"] - d["reserve"]
-        d["kr"] = kr
+        d["k5"], d["kr"] = k5, kr
+        for x in d["abschnitte"]:
+            x["af5"] = x["af5_anteil"] * k5
+            x["reserve"] = x["stunden"] if x["fix"] else x["stunden"] * x["res_anteil"] * kr
+            x["af1"] = x["stunden"] - x["af5"] - x["reserve"]
+        d["af5"] = sum(x["af5"] for x in d["abschnitte"])
+        d["reserve"] = sum(x["reserve"] for x in d["abschnitte"])
+        d["af1"] = sum(x["af1"] for x in d["abschnitte"])
 
     summen = dict(
         stunden=sum(d["stunden"] for d in personen),
@@ -64,6 +93,9 @@ def _jahr(p: Params, jahr: int, at: float) -> dict:
     return dict(
         jahr=jahr, personen=personen, honorarstunden=j.honorarstunden,
         workshoptage=j.workshoptage, kapazitaet=kapazitaet,
+        basis=b, land=b["land"],
+        arbeitstage=b["arbeitstage"], werktage=b["werktage"],
+        feiertage=b["feiertage"], feiertage_werktags=b["feiertage_werktags"],
         reserve=reserve_soll, reserve_pct=(reserve_soll / kapazitaet * 100) if kapazitaet else 0.0,
         deckung=(gedeckt / p.soll * 100) if p.soll else 0.0, gedeckt=gedeckt,
         k5=k5, kr=kr, summen=summen,
@@ -73,12 +105,10 @@ def _jahr(p: Params, jahr: int, at: float) -> dict:
 
 
 def compute(p: Params) -> dict:
-    at = p.arbeitstage
-    jahre = {jahr: _jahr(p, jahr, at) for jahr in p.jahr_liste()}
+    jahre = {jahr: _jahr(p, jahr) for jahr in p.jahr_liste()}
     return dict(
-        jahre=jahre, arbeitstage=at, wochen=at / 5,
-        werktage=p.werktage, feiertage=p.feiertage, urlaub=p.urlaub, krank=p.krank,
-        arbeitstage_fix=p.arbeitstage_fix,
+        jahre=jahre, land=p.land,
+        urlaub=p.urlaub, krank=p.krank,
         soll=dict(gesamt=p.soll, af1=p.soll_af1, af5=p.soll_af5), satz=p.satz,
         titel=p.titel, org=p.org, traeger=p.traeger,
     )
@@ -87,24 +117,29 @@ def compute(p: Params) -> dict:
 def warnungen(p: Params, model: dict) -> list[str]:
     """Klartext-Hinweise für das Formular. Leer = alles plausibel."""
     w: list[str] = []
-    if p.arbeitstage <= 0:
-        w.append("Arbeitstage sind 0 oder negativ — Jahresstunden werden alle 0.")
     if p.soll and abs(p.soll_af1 + p.soll_af5 - p.soll) > 1:
         w.append(
             f"Soll gesamt ({p.soll:.0f} h) ist nicht die Summe aus AF 1 ({p.soll_af1:.0f} h) "
             f"und AF 5 ({p.soll_af5:.0f} h)."
         )
     for jahr, m in model["jahre"].items():
+        zeilen = sum(len(d["abschnitte"]) for d in m["personen"])
         for d in m["personen"]:
-            if d["wochenstunden"] <= 0:
-                w.append(f"{jahr}: {d['name']} hat keine Wochenstunden.")
+            for x in d["abschnitte"]:
+                if x["wochenstunden"] <= 0:
+                    w.append(f"{jahr}: {d['name']} hat im Zeitraum {x['zeitraum']} "
+                             f"keine Wochenstunden.")
+                if x["netto"] <= 0:
+                    w.append(f"{jahr}: {d['name']} hat im Zeitraum {x['zeitraum']} "
+                             f"keine Arbeitstage (Urlaub/Krankheit zu hoch?).")
         neg = [d["name"] for d in m["personen"] if d["af1"] < -0.5]
         if neg:
             w.append(f"{jahr}: AF 1 wird negativ bei {', '.join(neg)} — Reserve- oder AF-5-Anteil zu hoch.")
         if p.soll_af5 - m["honorarstunden"] < -0.5:
             w.append(f"{jahr}: Honorarstunden übersteigen das AF-5-Soll.")
-        if len(m["personen"]) > 12:
-            w.append(f"{jahr}: {len(m['personen'])} Zeilen — mehr als 12 passen nicht mehr sauber auf eine A4-Seite.")
+        if zeilen > 12:
+            w.append(f"{jahr}: {zeilen} Zeiträume — mehr als 12 Zeilen passen nicht mehr "
+                     f"sauber auf eine A4-Seite.")
         if m["reserve"] < -0.5:
             w.append(f"{jahr}: Kapazität liegt unter dem Vertragssoll — die Reserve wird negativ.")
     return w

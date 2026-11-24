@@ -141,8 +141,8 @@ def _tabelle(pdf, m, y):
         pdf.cell(49, 3.0, _one_line(pdf, d["rolle"] or "", 49, 6.2))
         pdf.set_text_color(*TEXT)
         cells = [
-            (fmt1(d["wochenstunden"]), "R"),
-            (d["zeitraum"], "L"),
+            (d["wochenstunden_text"], "R"),
+            (d["zeitraum_text"], "L"),
             (fmt(d["stunden"]), "R"),
             (fmt(d["af1"]) if abs(d["af1"]) > 0.5 else "–", "R"),
             (fmt(d["af5"]) if d["af5"] > 0.5 else "–", "R"),
@@ -282,15 +282,14 @@ def _balken(pdf, m, y, unten):
 def _fuss(pdf, m, model, p, y_unten):
     s = m["summen"]
     quelle = p.quelle or "Steuerungsdatei in der Nextcloud"
-    at = model["arbeitstage"]
-    if model["arbeitstage_fix"]:
-        herkunft = f"Arbeitstage {at:g} von Hand gesetzt"
-    else:
-        herkunft = (f"Arbeitstage {at:g} = {p.werktage:g} Werktage − {p.feiertage:g} Feiertage "
-                    f"− {p.urlaub:g} Urlaub − {p.krank:g} Krankheit")
+    herkunft = (
+        f"{m['jahr']}: {m['land']} {m['arbeitstage']:g} Arbeitstage = {m['werktage']:g} Werktage "
+        f"− {m['feiertage_werktags']:g} Feiertage auf Werktagen (Kalender, Blatt Basisdaten); "
+        f"Urlaub {p.urlaub:g} / Krankheit {p.krank:g} Tage je Jahr, in Zeiträumen anteilig."
+    )
     zeilen = [
         f"Basis: {quelle}" + (f", Stand {p.stand}." if p.stand else "."),
-        f"{herkunft}; Stunden im Jahr = Wochenstunden / 5 × Arbeitstage, unterjährig anteilig.",
+        f"{herkunft} Stunden = Wochenstunden / 5 × Arbeitstage des Zeitraums.",
         f"AF 5 aus dem Team {fmt(s['af5_team'])} h = Soll AF 5 {fmt(p.soll_af5)} h − Honorar "
         f"{fmt(m['honorarstunden'])} h, verteilt nach AF-5-Anteil. Reserve {fmt(s['reserve'])} h "
         f"= Kapazität {fmt(m['kapazitaet'])} h − Vertragssoll {fmt(m['soll']['gesamt'])} h.",

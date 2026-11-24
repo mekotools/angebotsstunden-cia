@@ -4,13 +4,23 @@ Quelle der Standardwerte ist die Steuerungsdatei (XLSX) in der Nextcloud.
 Jeder Wert lässt sich im Formular einzeln überschreiben; ``from_form`` und
 ``to_form`` sind die Brücke zwischen HTTP und Modell.
 
+Zwei Dinge sind hier neu gegenüber einer reinen Jahrestabelle:
+
+* **Basisdaten je Bundesland und Jahr** kommen aus ``basisdaten`` (Kalender,
+  keine abgeschriebene Tabelle). Werktage, Feiertage und Arbeitstage stehen
+  damit für jedes Jahr fest und werden nicht von Hand gepflegt.
+* **Zeiträume je Person.** Eine Person hat einen oder mehrere Abschnitte
+  (Monat von … bis) mit eigenen Wochenstunden, Urlaubs- und Krankheitstagen —
+  damit lässt sich abbilden, dass jemand im Juli seine Stunden erhöht.
+  Leere Urlaubs-/Krankheitsfelder eines Abschnitts erben anteilig den
+  Jahresanspruch.
+
 Grundsätze:
 * Keine Rechnung hier — nur lesen, prüfen, halten.
 * Zahlen aus Formularen dürfen Komma oder Punkt als Dezimaltrenner haben.
 """
 from __future__ import annotations
 
-import calendar
 import re
 from dataclasses import dataclass, field, replace
 from io import BytesIO
@@ -18,8 +28,8 @@ from typing import Iterable
 
 import openpyxl
 
-# Voreinstellungen, die (noch) in keiner Spalte der Steuerungsdatei stehen.
-# Sie landen beim ersten Sichern im Blatt "Texte" der XLSX.
+import basisdaten
+
 STANDARD_TEXTE = {
     "titel": "Angebotsstunden",
     "org": "Medienkompetenzzentrum CIA Spandau",
@@ -37,8 +47,9 @@ STANDARD_JAHR = {
     },
 }
 
-MAX_ZEILEN = 20
+MAX_ZEILEN = 40
 JAHR_MIN, JAHR_MAX = 2020, 2100
+STANDARD_LAND = "Berlin"
 
 
 def zahl(v, default: float = 0.0) -> float:
@@ -73,28 +84,92 @@ def monat(v, default: int = 1) -> int:
     return min(12, max(1, m))
 
 
+def optional_zahl(v) -> float | None:
+    """Leeres Feld = ``None`` (anteilig), sonst die Zahl."""
+    if v is None or str(v).strip() == "":
+        return None
+    return zahl(v)
+
+
 @dataclass
-class Person:
-    name: str = ""
-    rolle: str = ""
-    wochenstunden: float = 0.0
+class Abschnitt:
+    """Ein Beschäftigungszeitraum: Monate ``von``..``bis`` mit eigenen Werten."""
+
     von: int = 1
     bis: int = 12
-    af5: float = 0.0      # gewünschter AF-5-Anteil in Stunden (wird auf das Soll skaliert)
-    res: float = 0.0      # Reserve-Anteil 0..1; 1 = volle Stelle nur Leitung/Verwaltung
+    wochenstunden: float = 0.0
+    urlaub: float | None = None   # None = anteilig aus dem Jahresanspruch
+    krank: float | None = None    # None = anteilig aus dem Jahresanspruch
+    af5: float = 0.0              # gewünschter AF-5-Anteil in Stunden (wird auf das Soll skaliert)
+    res: float = 0.0              # Reserve-Anteil 0..1; 1 = volle Stelle nur Leitung/Verwaltung
+
+    def __post_init__(self):
+        self.von = monat(self.von, 1)
+        self.bis = monat(self.bis, 12)
+        if self.bis < self.von:
+            self.von, self.bis = self.bis, self.von
+
+    @property
+    def monate(self) -> int:
+        return self.bis - self.von + 1
+
+    @property
+    def anteil(self) -> float:
+        """Anteil am Jahr, für die anteilige Vererbung von Urlaub und Krankheit."""
+        return self.monate / 12
 
     @property
     def fix(self) -> bool:
         return self.res >= 0.999
 
-    def zeitraum(self, jahr: int) -> str:
+    def zeitraum(self) -> str:
         if self.von == 1 and self.bis == 12:
-            return "01.01.–31.12."
-        letzter = calendar.monthrange(jahr, self.bis)[1]
-        return f"01.{self.von:02d}.–{letzter:02d}.{self.bis:02d}."
+            return "01.–12."
+        return f"{self.von:02d}.–{self.bis:02d}."
 
-    def anteil(self) -> float:
-        return (self.bis - self.von + 1) / 12
+
+@dataclass
+class Person:
+    """Eine Person mit einem oder mehreren Abschnitten."""
+
+    name: str = ""
+    rolle: str = ""
+    abschnitte: list[Abschnitt] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.abschnitte:
+            self.abschnitte = [Abschnitt()]
+
+    # ---- Bequemlichkeit für Anzeige und alte Aufrufer ----
+
+    @property
+    def wochenstunden(self) -> float:
+        return self.abschnitte[0].wochenstunden if self.abschnitte else 0.0
+
+    @property
+    def ws_text(self) -> str:
+        werte = [a.wochenstunden for a in self.abschnitte]
+        if len(werte) == 1:
+            return fmt(werte[0], 1)
+        return " → ".join(fmt(w, 1) for w in werte)
+
+    @property
+    def af5(self) -> float:
+        return sum(a.af5 for a in self.abschnitte)
+
+    @property
+    def res(self) -> float:
+        return self.abschnitte[0].res if self.abschnitte else 0.0
+
+    @property
+    def fix(self) -> bool:
+        return any(a.fix for a in self.abschnitte)
+
+    @property
+    def zeitraum_text(self) -> str:
+        if len(self.abschnitte) == 1:
+            return self.abschnitte[0].zeitraum()
+        return " · ".join(a.zeitraum() for a in self.abschnitte)
 
 
 @dataclass
@@ -116,13 +191,10 @@ class Jahr:
 
 @dataclass
 class Params:
-    # Annahmen
-    werktage: float = 261
-    feiertage: float = 8
-    urlaub: float = 24
-    krank: float = 10
-    arbeitstage_fix: bool = False
-    arbeitstage_wert: float = 219
+    # Basisdaten
+    land: str = STANDARD_LAND
+    urlaub: float = 24.0      # Jahresanspruch, Vorgabe für Abschnitte ohne eigene Angabe
+    krank: float = 10.0       # Jahresannahme, ebenso
 
     # Vertrag
     soll: float = 6828
@@ -141,19 +213,26 @@ class Params:
     quelle: str = ""
     stand: str = ""
 
-    # ---------- abgeleitet ----------
+    _basis: dict = field(default_factory=dict, repr=False)
 
-    @property
-    def arbeitstage(self) -> float:
-        """Arbeitstage: automatisch aus Werktagen − Feiertagen − Urlaub − Krankheit,
-        oder der von Hand gesetzte Wert, wenn ``arbeitstage_fix`` gesetzt ist."""
-        if self.arbeitstage_fix:
-            return self.arbeitstage_wert
-        return max(0.0, self.werktage - self.feiertage - self.urlaub - self.krank)
+    # ---------- Basisdaten ----------
 
-    @property
-    def wochen(self) -> float:
-        return self.arbeitstage / 5
+    def basis(self, jahr: int) -> dict:
+        """Werktage, Feiertage, Arbeitstage und Monatstabelle eines Jahres."""
+        schluessel = (self.land, jahr)
+        if schluessel not in self._basis:
+            self._basis[schluessel] = basisdaten.jahr(self.land, jahr)
+        return self._basis[schluessel]
+
+    def arbeitstage(self, jahr: int) -> float:
+        return float(self.basis(jahr)["arbeitstage"])
+
+    def netto_tage(self, jahr: int, a: Abschnitt) -> float:
+        """Arbeitstage eines Abschnitts nach Abzug von Urlaub und Krankheit."""
+        at = basisdaten.arbeitstage(self.land, jahr, a.von, a.bis)
+        u = a.urlaub if a.urlaub is not None else self.urlaub * a.anteil
+        k = a.krank if a.krank is not None else self.krank * a.anteil
+        return max(0.0, at - u - k)
 
     def jahr_liste(self) -> list[int]:
         return sorted(self.jahre)
@@ -164,33 +243,42 @@ class Params:
     # ---------- Serialisierung ----------
 
     def to_form(self) -> dict[str, str]:
-        """Alles, was das Formular braucht, als flache Zeichenketten."""
+        """Alles, was das Formular braucht, als flache Zeichenketten.
+
+        Die Tabelle im Formular hat **eine Zeile je Abschnitt**; ``n<jj>`` ist
+        entsprechend die Zahl der Abschnittszeilen, nicht die der Personen.
+        """
         d = {
-            "w": fmt(self.werktage, 1), "f": fmt(self.feiertage, 1), "u": fmt(self.urlaub, 1),
-            "k": fmt(self.krank, 1),
-            "at_fix": "1" if self.arbeitstage_fix else "",
-            "at": fmt(self.arbeitstage_wert if self.arbeitstage_fix else self.arbeitstage, 1),
+            "land": self.land,
+            "u": fmt(self.urlaub, 1), "k": fmt(self.krank, 1),
             "soll": fmt(self.soll), "af1": fmt(self.soll_af1), "af5": fmt(self.soll_af5),
             "satz": fmt(self.satz, 2),
             "titel": self.titel, "org": self.org, "traeger": self.traeger,
         }
         for jahr, j in self.jahre.items():
-            k = f"p{jahr}"
-            d[f"h{k[-2:]}"] = fmt(j.honorarstunden, 1)
-            d[f"wt{k[-2:]}"] = fmt(j.workshoptage, 1)
-            d[f"m{k[-2:]}"] = j.marker
-            d[f"un{k[-2:]}"] = j.untertitel
-            d[f"hn{k[-2:]}"] = j.hinweis
-            d[f"n{k[-2:]}"] = str(len(j.personen))
-            for i, p in enumerate(j.personen):
-                b = f"{k}_{i}"
-                d[f"{b}_name"] = p.name
-                d[f"{b}_rolle"] = p.rolle
-                d[f"{b}_ws"] = fmt(p.wochenstunden, 1)
-                d[f"{b}_von"] = str(p.von)
-                d[f"{b}_bis"] = str(p.bis)
-                d[f"{b}_af5"] = fmt(p.af5, 1)
-                d[f"{b}_res"] = fmt(p.res, 3)
+            s = str(jahr)[-2:]
+            b = self.basis(jahr)
+            d[f"bd{s}_w"] = fmt(b["werktage"])
+            d[f"bd{s}_f"] = fmt(b["feiertage_werktags"])
+            d[f"bd{s}_at"] = fmt(b["arbeitstage"])
+            d[f"h{s}"] = fmt(j.honorarstunden, 1)
+            d[f"wt{s}"] = fmt(j.workshoptage, 1)
+            d[f"m{s}"] = j.marker
+            d[f"un{s}"] = j.untertitel
+            d[f"hn{s}"] = j.hinweis
+            zeilen = [(q, a) for q in j.personen for a in q.abschnitte]
+            d[f"n{s}"] = str(len(zeilen))
+            for i, (q, a) in enumerate(zeilen):
+                r = f"p{jahr}_{i}"
+                d[f"{r}_name"] = q.name
+                d[f"{r}_rolle"] = q.rolle
+                d[f"{r}_von"] = str(a.von)
+                d[f"{r}_bis"] = str(a.bis)
+                d[f"{r}_ws"] = fmt(a.wochenstunden, 1)
+                d[f"{r}_u"] = "" if a.urlaub is None else fmt(a.urlaub, 1)
+                d[f"{r}_k"] = "" if a.krank is None else fmt(a.krank, 1)
+                d[f"{r}_af5"] = fmt(a.af5, 1)
+                d[f"{r}_res"] = fmt(a.res, 3)
         return d
 
     def to_query(self) -> str:
@@ -218,9 +306,6 @@ def _zelle(ws, adresse, default=None):
 
 
 def _honorar(ws_auswertung) -> float:
-    """Honorarstunden stehen im Block der Auswertung (Zeile „Honorarkräfte", Spalte D).
-    Die Zeile wird über ihre Beschriftung gesucht, damit sie nach dem Sichern
-    an beliebiger Stelle stehen darf."""
     for r in range(1, ws_auswertung.max_row + 1):
         label = ws_auswertung.cell(row=r, column=1).value
         if isinstance(label, str) and label.strip().lower().startswith("honorar"):
@@ -228,14 +313,64 @@ def _honorar(ws_auswertung) -> float:
     return 0.0
 
 
-def _quellen(ws) -> dict[str, float]:
-    """Blatt Quellen: Beschriftung in A, Zahl in B."""
+def _quellen(ws) -> dict[str, str]:
+    """Blatt Quellen: Beschriftung in A, Wert in B (Zahl oder Text)."""
     d = {}
     for r in range(1, ws.max_row + 1):
         label = ws.cell(row=r, column=1).value
+        wert = ws.cell(row=r, column=2).value
         if isinstance(label, str):
-            d[label.strip()] = zahl(ws.cell(row=r, column=2).value)
+            d[label.strip()] = wert
     return d
+
+
+def _personen_aus_blatt(ws, alt: bool, urlaub_jahr: float, krank_jahr: float) -> list[Person]:
+    """Liest das Blatt 'Eingabe <Jahr>'.
+
+    Neues Format: A Name, B Funktion, C von, D bis, E Wochenstunden,
+    F Urlaub, G Krankheit, H AF 5, I Reserve-Anteil.
+    Altes Format: A Name, B Funktion, C Wochenstunden, D von, E bis,
+    F AF 5, G Reserve-Anteil — Urlaub/Krankheit kamen aus den Annahmen.
+    """
+    personen: list[Person] = []
+    index: dict[str, Person] = {}
+    r = 4
+    while ws.cell(row=r, column=1).value:
+        name = str(ws.cell(row=r, column=1).value).strip()
+        if not name:
+            break
+        if alt:
+            a = Abschnitt(
+                von=monat(ws.cell(row=r, column=4).value, 1),
+                bis=monat(ws.cell(row=r, column=5).value, 12),
+                wochenstunden=zahl(ws.cell(row=r, column=3).value),
+                af5=zahl(ws.cell(row=r, column=6).value),
+                res=zahl(ws.cell(row=r, column=7).value),
+            )
+        else:
+            a = Abschnitt(
+                von=monat(ws.cell(row=r, column=3).value, 1),
+                bis=monat(ws.cell(row=r, column=4).value, 12),
+                wochenstunden=zahl(ws.cell(row=r, column=5).value),
+                urlaub=optional_zahl(ws.cell(row=r, column=6).value),
+                krank=optional_zahl(ws.cell(row=r, column=7).value),
+                af5=zahl(ws.cell(row=r, column=8).value),
+                res=zahl(ws.cell(row=r, column=9).value),
+            )
+        if name in index:
+            index[name].abschnitte.append(a)
+        else:
+            index[name] = Person(name=name,
+                                 rolle=str(ws.cell(row=r, column=2).value or "").strip(),
+                                 abschnitte=[a])
+            personen.append(index[name])
+        r += 1
+    return personen
+
+
+def _ist_neues_format(ws) -> bool:
+    kopf = str(ws.cell(row=3, column=3).value or "").strip().lower()
+    return kopf.startswith("von")
 
 
 def from_xlsx(data: bytes) -> Params:
@@ -243,25 +378,19 @@ def from_xlsx(data: bytes) -> Params:
     if "Annahmen" not in wb.sheetnames:
         raise ValueError("Blatt 'Annahmen' fehlt in der Steuerungsdatei")
     an = wb["Annahmen"]
+    q = _quellen(wb["Quellen"]) if "Quellen" in wb.sheetnames else {}
+    land = str(q.get("Bundesland") or STANDARD_LAND).strip()
+    if land not in basisdaten.BUNDESLAENDER:
+        land = STANDARD_LAND
     p = Params(
+        land=land,
+        urlaub=zahl(q.get("Urlaubsanspruch"), 24),
         krank=zahl(_zelle(an, "B4", 10)),
-        arbeitstage_wert=zahl(_zelle(an, "B5", 219)),
         soll=zahl(_zelle(an, "B7", 6828)),
         soll_af1=zahl(_zelle(an, "B8", 5000)),
         soll_af5=zahl(_zelle(an, "B9", 1828)),
         satz=zahl(_zelle(an, "B10", 38.08), 38.08),
     )
-    q = _quellen(wb["Quellen"]) if "Quellen" in wb.sheetnames else {}
-    p.werktage = q.get("Werktage Mo–Fr 2026") or q.get("Werktage Mo-Fr 2026") or 261
-    p.feiertage = q.get("Feiertage auf Werktagen 2026") or 8
-    p.urlaub = q.get("Urlaubsanspruch") or 24
-    # Arbeitstage automatisch, solange die gespeicherte Zahl zur Rechnung passt
-    auto = max(0.0, p.werktage - p.feiertage - p.urlaub - p.krank)
-    p.arbeitstage_fix = abs(auto - p.arbeitstage_wert) > 0.05
-    if p.arbeitstage_fix:
-        p.arbeitstage_wert = zahl(_zelle(an, "B5", auto))
-    else:
-        p.arbeitstage_wert = auto
 
     texte = {}
     if "Texte" in wb.sheetnames:
@@ -275,31 +404,16 @@ def from_xlsx(data: bytes) -> Params:
     p.org = texte.get("org", p.org)
     p.traeger = texte.get("traeger", p.traeger)
 
-    for jahr in (2026, 2027):
-        blatt = f"Eingabe {jahr}"
-        if blatt not in wb.sheetnames:
-            continue
-        ws = wb[blatt]
-        personen: list[Person] = []
-        r = 4
-        while ws.cell(row=r, column=1).value:
-            name = str(ws.cell(row=r, column=1).value).strip()
-            if not name:
-                break
-            personen.append(Person(
-                name=name,
-                rolle=str(ws.cell(row=r, column=2).value or "").strip(),
-                wochenstunden=zahl(ws.cell(row=r, column=3).value),
-                von=monat(ws.cell(row=r, column=4).value, 1),
-                bis=monat(ws.cell(row=r, column=5).value, 12),
-                af5=zahl(ws.cell(row=r, column=6).value),
-                res=zahl(ws.cell(row=r, column=7).value),
-            ))
-            r += 1
+    for jahr in sorted({int(s.split()[-1]) for s in wb.sheetnames
+                        if s.startswith("Eingabe ") and s.split()[-1].isdigit()}):
+        ws = wb[f"Eingabe {jahr}"]
+        personen = _personen_aus_blatt(ws, alt=not _ist_neues_format(ws),
+                                       urlaub_jahr=p.urlaub, krank_jahr=p.krank)
         j = Jahr(
             jahr=jahr,
-            honorarstunden=_honorar(wb[f"Auswertung {jahr}"]) if f"Auswertung {jahr}" in wb.sheetnames else 0.0,
-            workshoptage=q.get(f"Workshoptage {jahr}", 0.0),
+            honorarstunden=_honorar(wb[f"Auswertung {jahr}"])
+            if f"Auswertung {jahr}" in wb.sheetnames else 0.0,
+            workshoptage=zahl(q.get(f"Workshoptage {jahr}"), 0),
             marker=texte.get(f"marker {jahr}", ""),
             untertitel=texte.get(f"untertitel {jahr}", ""),
             hinweis=texte.get(f"hinweis {jahr}", ""),
@@ -314,17 +428,46 @@ def from_xlsx(data: bytes) -> Params:
 
 # ---------------------------------------------------------------- aus HTTP
 
+def _personen_aus_form(werte, jahr: int, urlaub_jahr: float, krank_jahr: float) -> list[Person]:
+    """Formularzeilen → Personen. Gleicher Name in Folgezeilen = gleiche Person."""
+    s = str(jahr)[-2:]
+    n = min(ganz(werte.get(f"n{s}"), 0), MAX_ZEILEN)
+    personen: list[Person] = []
+    index: dict[str, Person] = {}
+    for i in range(n):
+        r = f"p{jahr}_{i}"
+        name = str(werte.get(f"{r}_name") or "").strip()
+        if not name:
+            continue
+        a = Abschnitt(
+            von=monat(werte.get(f"{r}_von"), 1),
+            bis=monat(werte.get(f"{r}_bis"), 12),
+            wochenstunden=zahl(werte.get(f"{r}_ws")),
+            urlaub=optional_zahl(werte.get(f"{r}_u")),
+            krank=optional_zahl(werte.get(f"{r}_k")),
+            af5=zahl(werte.get(f"{r}_af5")),
+            res=zahl(werte.get(f"{r}_res")),
+        )
+        if name in index:
+            index[name].abschnitte.append(a)
+        else:
+            index[name] = Person(name=name, rolle=str(werte.get(f"{r}_rolle") or "").strip(),
+                                 abschnitte=[a])
+            personen.append(index[name])
+    return personen
+
+
 def from_form(form) -> Params:
     """Baut Parameter aus Formular-/Query-Daten. Fehlende Felder = Standard."""
     werte = dict(form)
     base = Params()
+    land = str(werte.get("land") or base.land).strip()
+    if land not in basisdaten.BUNDESLAENDER:
+        land = base.land
     p = Params(
-        werktage=zahl(werte.get("w"), base.werktage),
-        feiertage=zahl(werte.get("f"), base.feiertage),
+        land=land,
         urlaub=zahl(werte.get("u"), base.urlaub),
         krank=zahl(werte.get("k"), base.krank),
-        arbeitstage_fix=bool(str(werte.get("at_fix") or "").strip()),
-        arbeitstage_wert=zahl(werte.get("at"), 0),
         soll=zahl(werte.get("soll"), base.soll),
         soll_af1=zahl(werte.get("af1"), base.soll_af1),
         soll_af5=zahl(werte.get("af5"), base.soll_af5),
@@ -333,47 +476,23 @@ def from_form(form) -> Params:
         org=str(werte.get("org") or base.org),
         traeger=str(werte.get("traeger") or base.traeger),
     )
-    if p.arbeitstage_fix and p.arbeitstage_wert <= 0:
-        p.arbeitstage_wert = round(p.werktage - p.feiertage - p.urlaub - p.krank, 1)
-    if p.arbeitstage_fix is False:
-        p.arbeitstage_wert = round(p.werktage - p.feiertage - p.urlaub - p.krank, 1)
-
     for jahr in (2026, 2027):
-        k = str(jahr)[-2:]
-        n = ganz(werte.get(f"n{k}"), 0)
-        if n <= 0 and not any(f"p{jahr}_" in s for s in werte):
-            n = 0
-        n = min(n, MAX_ZEILEN)
-        personen = []
-        for i in range(n):
-            b = f"p{jahr}_{i}"
-            name = str(werte.get(f"{b}_name") or "").strip()
-            if not name:
-                continue
-            personen.append(Person(
-                name=name,
-                rolle=str(werte.get(f"{b}_rolle") or "").strip(),
-                wochenstunden=zahl(werte.get(f"{b}_ws")),
-                von=monat(werte.get(f"{b}_von"), 1),
-                bis=monat(werte.get(f"{b}_bis"), 12),
-                af5=zahl(werte.get(f"{b}_af5")),
-                res=zahl(werte.get(f"{b}_res")),
-            ))
+        s = str(jahr)[-2:]
         p.jahre[jahr] = Jahr(
             jahr=jahr,
-            honorarstunden=zahl(werte.get(f"h{k}")),
-            workshoptage=zahl(werte.get(f"wt{k}")),
-            marker=str(werte.get(f"m{k}") or STANDARD_JAHR.get(jahr, {}).get("marker", "")),
-            untertitel=str(werte.get(f"un{k}") or STANDARD_JAHR.get(jahr, {}).get("untertitel", "")),
-            hinweis=str(werte.get(f"hn{k}") or ""),
-            personen=personen,
+            honorarstunden=zahl(werte.get(f"h{s}")),
+            workshoptage=zahl(werte.get(f"wt{s}")),
+            marker=str(werte.get(f"m{s}") or STANDARD_JAHR.get(jahr, {}).get("marker", "")),
+            untertitel=str(werte.get(f"un{s}") or STANDARD_JAHR.get(jahr, {}).get("untertitel", "")),
+            hinweis=str(werte.get(f"hn{s}") or ""),
+            personen=_personen_aus_form(werte, jahr, p.urlaub, p.krank),
         )
     p.quelle = str(werte.get("quelle") or "")
     p.stand = str(werte.get("stand") or "")
     return p
 
 
-SCHLUESSEL = ("w", "f", "u", "k", "at_fix", "at", "soll", "af1", "af5", "satz",
+SCHLUESSEL = ("land", "u", "k", "soll", "af1", "af5", "satz",
               "titel", "org", "traeger", "h26", "h27", "wt26", "wt27", "n26", "n27")
 
 
@@ -385,8 +504,9 @@ def betroffen(form) -> bool:
 def overlay(base: Params, form) -> Params:
     """Legt nur die tatsächlich übergebenen Felder über die Werte aus der XLSX.
 
-    Damit funktioniert auch ein einzelner Parameter in der URL (`?k=15`) — und
-    fehlende Felder fallen auf die Steuerungsdatei zurück statt auf Python-Konstanten.
+    Ein einzelner Parameter in der URL (`?k=15`) wirkt damit, ohne die Personen
+    zu verlieren: ``u`` und ``k`` gelten dann anteilig für alle Abschnitte.
+    Kommen Personen-Zeilen mit, gewinnen deren eigene Werte.
     """
     w = dict(form)
 
@@ -395,10 +515,11 @@ def overlay(base: Params, form) -> Params:
             return current
         return cast(w[key])
 
+    land = str(w.get("land") or base.land).strip()
+    if land not in basisdaten.BUNDESLAENDER:
+        land = base.land
     p = replace(
-        base,
-        werktage=pick("w", base.werktage),
-        feiertage=pick("f", base.feiertage),
+        base, land=land, _basis={},
         urlaub=pick("u", base.urlaub),
         krank=pick("k", base.krank),
         soll=pick("soll", base.soll),
@@ -409,35 +530,26 @@ def overlay(base: Params, form) -> Params:
         org=str(w.get("org") or base.org),
         traeger=str(w.get("traeger") or base.traeger),
     )
-    if "at_fix" in w:
-        p.arbeitstage_fix = bool(str(w.get("at_fix") or "").strip())
-    if "at" in w and str(w["at"]).strip():
-        p.arbeitstage_wert = zahl(w["at"])
-    elif not p.arbeitstage_fix:
-        p.arbeitstage_wert = round(p.werktage - p.feiertage - p.urlaub - p.krank, 1)
 
     jahre = {}
     for jahr, j in base.jahre.items():
         s = str(jahr)[-2:]
         if f"n{s}" in w:
-            n = min(ganz(w[f"n{s}"], 0), MAX_ZEILEN)
-            personen = []
-            for i in range(n):
-                b = f"p{jahr}_{i}"
-                name = str(w.get(f"{b}_name") or "").strip()
-                if not name:
-                    continue
-                personen.append(Person(
-                    name=name,
-                    rolle=str(w.get(f"{b}_rolle") or "").strip(),
-                    wochenstunden=zahl(w.get(f"{b}_ws")),
-                    von=monat(w.get(f"{b}_von"), 1),
-                    bis=monat(w.get(f"{b}_bis"), 12),
-                    af5=zahl(w.get(f"{b}_af5")),
-                    res=zahl(w.get(f"{b}_res")),
-                ))
+            personen = _personen_aus_form(w, jahr, p.urlaub, p.krank)
         else:
             personen = j.personen
+        # URL-Einzelwerte für Urlaub/Krankheit wirken auf alle Abschnitte anteilig
+        if "u" in w or "k" in w:
+            neu = []
+            for q in personen:
+                abschnitte = []
+                for a in q.abschnitte:
+                    abschnitte.append(replace(
+                        a,
+                        urlaub=None if "u" in w else a.urlaub,
+                        krank=None if "k" in w else a.krank))
+                neu.append(replace(q, abschnitte=abschnitte))
+            personen = neu
         jahre[jahr] = Jahr(
             jahr=jahr,
             honorarstunden=pick(f"h{s}", j.honorarstunden),

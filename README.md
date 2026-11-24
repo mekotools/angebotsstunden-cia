@@ -8,29 +8,53 @@ Nextcloud — die App hält keine eigenen Daten.
 ## Ablauf
 
 ```
-Nextcloud-XLSX (Annahmen, Eingabe 2026/2027, Texte)
+Nextcloud-XLSX (Basisdaten, Annahmen, Eingabe 2026/2027, Texte)
         │  WebDAV
         ▼
-params.py  ──►  core.py  ──►  report.py (fpdf2, A4)
-        ▲                         │
-        │  /sichern               ▼
-xlsx_write.py  ◄────────  PDF / Vorschau im iframe
+params.py ──► basisdaten.py ──► core.py ──► report.py (fpdf2, A4)
+        ▲                                      │
+        │  /sichern                            ▼
+xlsx_write.py  ◄──────────────────  PDF / Vorschau im iframe
 ```
 
-* `params.py` — Datenmodell, Lesen aus der XLSX, Lesen des Formulars, `to_form()`
+* `basisdaten.py` — Werktage, Feiertage und Arbeitstage je **Bundesland und Jahr**,
+  aus dem Kalender gerechnet (Osterformel, Landesrecht, Einmal-Feiertage als Liste)
+* `params.py` — Datenmodell (Personen mit Zeiträumen), Lesen aus der XLSX, Lesen des
+  Formulars, `to_form()`
 * `core.py` — Rechnung mit den Faktoren k5 (AF-5-Verteilung) und kr (Reserve)
 * `report.py` — eine A4-Seite je Jahr, Tabelle/Deckungsbalken/Personenbalken,
   passt sich der Zeilenzahl an (13–15 Personen bleiben auf einer Seite)
 * `xlsx_write.py` — Rückweg: Eingabeblätter schreiben, Auswertungsformeln für die
   aktuelle Zeilenzahl neu setzen, Blatt `Quellen` unangetastet lassen
 
+## Basisdaten je Jahr
+
+Werktage, Feiertage und Arbeitstage werden **nicht gepflegt, sondern gerechnet**:
+`basisdaten.py` kennt die gesetzlichen Feiertage aller 16 Länder (bewegliche Feste
+über die Osterformel, Einmal-Feiertage als Liste, z. B. 8. Mai 2025 in Berlin),
+zählt die Werktage Montag–Freitag und zieht die Feiertage ab. Das Bundesland steht
+im Blatt `Quellen` und im Formular.
+
+Beispiele Berlin: 2026 = 261 Werktage − 7 Feiertage auf Werktagen = **254
+Arbeitstage**, 2027 = **255**, 2028 = 260 − 9 = **251**. Die Werte sind gegen
+veröffentlichte Tabellen geprüft (`tests/test_basisdaten.py`, alle 16 Länder).
+
+## Personen mit Zeiträumen
+
+Eine Person hat **einen oder mehrere Zeiträume** (Monat von … bis), jeder mit
+eigenen Wochenstunden, Urlaubs- und Krankheitstagen — damit lässt sich abbilden,
+dass jemand ab Juli seine Stunden erhöht. In der Personentabelle ist das „gleicher
+Name in Folgezeilen"; der Knopf **＋** teilt einen Zeitraum in der Mitte und legt
+den zweiten an. Leere Urlaubs-/Krankheitsfelder erben anteilig den Jahresanspruch
+aus den Annahmen. AF-5- und Reserve-Anteil gelten je Zeitraum.
+
 ## Was justierbar ist
 
-Global: Werktage, Feiertage, Urlaub, Krankheit (oder Arbeitstage direkt, per Häkchen),
-Leistungsstunden gesamt/AF 1/AF 5, Kostensatz, Titel, Organisation, Träger.
+Basisdaten: Bundesland, Urlaubsanspruch und Krankheitstage je Jahr.
+Vertrag: Leistungsstunden gesamt/AF 1/AF 5, Kostensatz, Titel, Organisation, Träger.
 Je Jahr: Honorarstunden, Workshoptage, Kennzeichen (IST/PLANUNG), Untertitel, Hinweis.
-Je Person: Name, Funktion, Wochenstunden, von/bis-Monat, AF-5-Anteil, Reserve-Anteil —
-Zeilen lassen sich hinzufügen und löschen.
+Je Zeitraum: Name, Funktion, von/bis-Monat, Wochenstunden, Urlaub, Krankheit,
+AF-5-Anteil, Reserve-Anteil — Zeilen lassen sich hinzufügen, teilen und löschen.
 
 ## Endpunkte
 
@@ -54,14 +78,18 @@ Zeilen lassen sich hinzufügen und löschen.
 
 ## Steuerungsdatei
 
-Blätter `Annahmen` (Krankheitstage, Arbeitstage, Sollwerte, Kostensatz, Werktage),
-`Eingabe <Jahr>` (Personen, Wochenstunden, Zeitraum, AF-5-Stunden, Reserve-Anteil),
-`Auswertung <Jahr>` (Formeln inklusive der Faktoren k5 und kr) sowie `Quellen` und
-`Texte`. Leere Zellen werden als 0 gewertet.
+`Basisdaten <Jahr>` (Monatstabelle Werktage/Feiertage/Arbeitstage plus Feiertagsliste),
+`Annahmen` (Krankheitstage, Sollwerte, Kostensatz, Bundesland, Urlaubsanspruch),
+`Eingabe <Jahr>` (**eine Zeile je Zeitraum**; Arbeitstage und Stunden sind Formeln),
+`Auswertung <Jahr>` (eine Zeile je Person, Formeln inklusive k5 und kr) sowie
+`Quellen` und `Texte`. Leere Zellen werden als 0 gewertet; beim Sichern werden
+anteilige Urlaubs-/Krankheitswerte als Zahl geschrieben.
 
 ## Rechenweg
 
-1. `Stunden im Jahr = Wochenstunden / 5 × Arbeitstage × Anteil am Jahr`
+1. `Arbeitstage eines Zeitraums = Werktage − Feiertage` (Blatt `Basisdaten`),
+   `Netto = Arbeitstage − Urlaub − Krankheit`, `Stunden = Wochenstunden / 5 × Netto`;
+   die Stunden einer Person sind die Summe ihrer Zeiträume
 2. `AF 5 = AF-5-Anteil × k5`, `k5 = (Soll AF 5 − Honorarstunden) / Summe der AF-5-Anteile`
 3. `Reserve = Stunden × Reserve-Anteil × kr` (Anteil 1 = ganze Stelle nur Leitung/Verwaltung),
    `kr = (Kapazität − Vertragssoll − feste Reserve) / Summe der übrigen Ansprüche`
