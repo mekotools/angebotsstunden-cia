@@ -83,5 +83,11 @@ ohne `STEUERDATEI` überspringen sich die dateibasierten Prüfungen.
 
 ## Betrieb
 
-Coolify-App auf flip, Build aus diesem Repo (`master`), BasicAuth im Caddy-Label.
+Coolify-App auf flip, Build aus diesem Repo (`master`).
 Zugangsdaten und Nextcloud-Pfad kommen aus dem Container-Env, nie aus dem Repo.
+
+**Zugang:** über CIA-Authentik per Forward-Auth (Proxy-Anbieter „Angebotsstunden",
+eigener Outpost-Container `angebotsstunden-outpost` auf flip). Der Router steht in
+`/data/coolify/proxy/dynamic/angebotsstunden-auth.yml` auf flip und hat bewusst
+höhere Priorität als der Coolify-Router; die BasicAuth-Kennzeichnung in Coolify
+bleibt als Rückfallebene gesetzt, wird aber nicht mehr wirksam.
