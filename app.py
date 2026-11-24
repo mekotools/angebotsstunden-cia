@@ -178,8 +178,12 @@ def export_xlsx():
 @app.post("/sichern")
 async def sichern(request: Request):
     """Schreibt die justierten Werte in die Steuerungsdatei zurück (mit Sicherung)."""
-    form = await request.form()
-    p, _ = _aus_form(form)
+    # Bewusst ohne python-multipart: der Posten kommt als urlencoded, das parst die
+    # Standardbibliothek. (Starlette verlangt für request.form() ein Zusatzpaket.)
+    roh = await request.body()
+    felder = {k: v[0] for k, v in urllib.parse.parse_qs(
+        roh.decode("utf-8", "replace"), keep_blank_values=True).items()}
+    p, _ = _aus_form(felder)
     if not (NC_USER and NC_PASS) or LOCAL_FILE:
         return JSONResponse({"ok": False,
                              "fehler": "Ohne Nextcloud-Zugang wird nicht gesichert."}, status_code=400)
